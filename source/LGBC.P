@@ -1,0 +1,624 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第２５章「さまざまな機能」
+/　に対応
+/======================================
+
+	.file	"lgbc.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ガーベジコレクタ＞
+/--------------------------------------
+@l_gbc:
+	!cell_gbc;			/セルのＧＢＣ(関数の返り値はセル数)
+	PUSH1;				/(始めに不必要なセルを回収したほうが効率が良い)
+	 !array_gbc2;			/配列のＧＢＣ
+	 !struct_gbc2;			/構造体のＧＢＣ
+	 !floanum_gbc2;			/浮動小数点数のＧＢＣ
+	 !string_gbc2;			/文字列のＧＢＣ
+	POP1; ret;
+
+@cell_gbc:				/freecellが書き換えられる
+	SET1(verboseadr)		/ＧＢＣ起動メッセエージ
+	SET1(VALUE(%eax)); NILP; je cg3;
+	SET1(gbc_up_message_adr); SET1(VALUE(%eax));
+	NILP; je cg3;			/ *gc-message* が nil なら表示しない
+	!c_print;
+cg3:	SET1(gcctradr); SET2_1;		/ＧＢＣカウンタの参照
+	SET1(VALUE(%eax)); FIXNUMP; je cg4;
+	%eax=$0;			/ＧＢＣカウンタの初期化
+cg4:	UNMASK1; %eax++;
+	!SETNUM; VALUE(%ebx)=%eax;	/ＧＢＣカウンタの更新
+cg5:					/以下セルのＧＢＣ本体
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(consadr); !set_type;	/データ型
+	%ebx=cellarea; !set_diffc;	/コンス領域とＧＢＣ作業領域との距離
+	!clear_gbcarea;			/ＧＢＣ作業領域の初期化
+/PREAX
+	!mark_cell_from_atom;		/アトムからの印付け
+/PREAX
+	!mark_cell_from_array;		/配列からの印付け
+	!mark_cell_from_struct;		/構造体からの印付け
+/PREAX
+	!mark_cell_from_stack;		/スタックからの印付け
+/PREAX
+	!arrange_cell;			/セルの再配置(セル以外のポインタ)
+	!change_cell;			/セルの再配置(セル同士)
+	%edi=$CELLTAG; !change_data;	/セルの書替え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+cg6:	%ecx=cellend; %ecx-=freecell;	/回収したセルの数(バイト数)
+	?l($RESTROOM,%ecx); jl cg7;	/セルが少ししか回収できなかったらエラ−
+	%eax=%ecx; shrl %eax; shrl %eax; shrl %eax;
+	jmp SETNUM;			/回収したセル数を返す(1セル＝8バイト)
+
+cg7:	!check_expansion;		/領域の自動拡張を行うか？
+	je CELL_OUT_ERR;		/自動拡張を行わなければエラ−
+	!expand_cell; jmp cg6;		/コンス領域の拡張
+
+check_expansion:
+	SET1(auto_memory_expansion_adr); SET1(VALUE(%eax));
+	NILP; ret;
+
+/======================================
+/　＜配列のガーベジコレクタ＞
+/======================================
+@array_gbc:				/配列生成関数からのエントリ
+	PUSH1;				/%eax:確保が必要なバイト数
+	 !cell_gbc;			/コンスの回収
+	 !array_gbc2;			/配列の回収
+	POP1;				/回収した領域で十分か？
+	?l(%eax,%ecx); jl ag2;
+	ret;
+
+array_gbc2:				/各ＧＢＣルーチンからのエントリ
+	%ebx=arrayarea; !set_diffc;	/配列領域とコンス複写領域との距離
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(arrayadr); !set_type;	/データ型
+	%edi=$ARRAYTAG; !marks;		/各領域からの印付け
+	!arrange_array;			/配列領域の再配置
+	!change_data;			/配列の書替え
+	!change_array;			/配列の再配置(配列同士)
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+ag1:	%ecx=arrayend; %ecx-=arraytop;	/回収した配列領域の数（バイト数）
+	?l($RESTROOM,%ecx); jl ag2;
+	ret;				/一定数よりも少なくなればエラー
+
+ag2:	!check_expansion;		/領域の自動拡張を行うか？
+	je ARRAY_OUT_ERR;		/自動拡張を行わなければエラ−
+	!expand_array; jmp ag1;		/配列領域の拡張
+
+/======================================
+/　＜構造体のガーベジコレクタ＞
+/======================================
+@struct_gbc:				/構造体生成関数からのエントリ
+	PUSH1;				/%eax:確保が必要なバイト数
+	 !cell_gbc;			/コンスの回収
+	 !struct_gbc2;			/構造体の回収
+	POP1;				/回収した領域で十分か？
+	?l(%eax,%ecx); jl su2;
+	ret;
+
+@struct_gbc2:
+	%ebx=structarea; !set_diffc;	/構造体領域とコンス複写領域との距離
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(structadr); !set_type;	/データ型
+	%edi=$STRUCTTAG; !marks;	/各領域からの印付け
+	!arrange_struct;		/構造体領域の再配置
+	!change_data;			/構造体の書替え
+	!change_struct;			/構造体の再配置(構造体同士)
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+su1:	%ecx=structend; %ecx-=structtop; /回収した構造体領域の数（バイト数）
+	?l($RESTROOM,%ecx); jl su2;
+	ret;
+
+su2:	!check_expansion;		/領域の自動拡張を行うか？
+	je STRUCT_OUT_ERR;		/自動拡張を行わなければエラ−
+	!expand_struct; jmp su1;	/配列領域の拡張
+
+/======================================
+/　＜浮動小数点数のガーベジコレクタ＞
+/======================================
+@floanum_gbc:
+	pusha; !cell_gbc; !floanum_gbc2; popa; ret;
+
+floanum_gbc2:
+	%ebx=floanumarea; !set_diffc;	/浮動小数点領域とコンス複写領域との距離
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(floanumadr); !set_type;	/データ型
+	%edi=$FLOATTAG; !marks;		/各領域からの印付け
+	!arrange_floanum;		/浮動小数点数領域の再配置
+	!change_data;			/浮動小数点数の書替え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+fg1:	%ecx=floanumend;		/回収した浮動小数点領域の数（バイト数）
+	%ecx-=floanumtop;
+	?l($RESTROOM,%ecx); jl fg2;
+	ret;
+
+fg2:	!check_expansion;		/領域の自動拡張を行うか？
+	je FLOANUM_OUT_ERR;		/自動拡張を行わなければエラ−
+	!expand_floanum; jmp fg1;	/配列領域の拡張
+
+/======================================
+/　＜文字列のガーベジコレクタ＞
+/======================================
+@string_gbc:				/文字列生成関数からのエントリ
+	PUSH1;				/%eax:確保が必要なバイト数
+	 !cell_gbc;			/コンスの回収
+	 !string_gbc2;			/文字列の回収
+	POP1;				/回収した領域で十分か？
+	?l(%eax,%ecx); jl sg2;
+	ret;
+
+string_gbc2:
+	%ebx=stringarea; !set_diffc;	/文字列領域とコンス複写領域との距離
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(stringadr); !set_type;	/データ型
+	%edi=$STRINGTAG; !marks;	/各領域からの印付け
+	!arrange_string;		/文字列領域の再配置
+	!change_data;			/文字列の書替え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+sg1:	%ecx=stringend;			/回収した文字列領域の数（バイト数）
+	%ecx-=stringtop;
+	?l($RESTROOM,%ecx); jl sg2;
+	ret;
+
+sg2:	!check_expansion;		/領域の自動拡張を行うか？
+	je STRING_OUT_ERR;		/自動拡張を行わなければエラ−
+	!expand_string; jmp sg1;	/配列領域の拡張
+
+/======================================
+/	アトムからの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+mark_cell_from_atom:			/シンボルからマーク
+	%ebx=symbolarea;	 	/チェック開始位置
+mcfa1:	%eax=VALUE(%ebx);
+	CELLP; jne mcfa2;		/シンボルの値がセルの時
+/pusha
+/	SET1_2;
+/	xorl $SYMBOLTAG,%eax;
+/!c_print;
+/	PRSPC;
+/popa
+/pusha
+/	PREAX;
+/	PRSPC;
+/!c_print;
+/	PRLF;
+/popa
+	leal VALUE(%ebx),%ecx; SPUSH3; !mark_cell;
+mcfa2:	%eax=PLIST(%ebx);
+	CELLP; jne mcfa3;		/ＰＬＩＳＴが設定されている時
+	PUSH1;
+	 leal PLIST(%ebx),%ecx; SPUSH3; !mark_cell;
+	POP1;
+	!mark_cell_in_compiled_code;
+mcfa3:	%eax=FUNCTYPE(%ebx);		/ユーザー関数が定義されている時
+	?b($EXPR,%ah); je mcfa4;
+	?b($FEXPR,%ah); je mcfa4;
+	?b($MACRO,%ah); jne mcfa5;
+mcfa4:	%eax=FUNCTION(%ebx); CELLP; jne mcfa5;
+	leal FUNCTION(%ebx),%ecx; SPUSH3; !mark_cell;
+mcfa5:	%ebx+=$ATOMNAME;		/シンボルを１つ終えて次に移る
+mcfa6:	%al=(%ebx); %ebx++;		/文字列の終端チェック
+	orb %al,%al; jne mcfa6;
+	?l(symboltop,%ebx); jb mcfa1;
+	ret;
+
+mark_cell_in_compiled_code:
+	PUSH2;
+	 SET2_1; SET1(gbc_type);	/作業中のＧＢＣの型
+	 !l_member; NILP; je mdfa7;
+	 CDR; CAR;			/コンパイルされたコード中のデータリスト
+mdfa61:	 PUSH1;				/もし同じ型があればそのアドレスを記録
+	  CAR; FIXNUMP; jne mdfa8;
+	  UNMASK1; SPUSH1; SET1((%eax)); !mark_cell;
+mdfa8:	 POP1; CDR; NILP; jne mdfa61;
+mdfa7:	POP2; ret;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+mark_from_atom:				/%edi : チェックする型
+	%ebx=symbolarea;	 	/チェック開始位置
+mfa1:	%eax=VALUE(%ebx);		/値のチェック
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfa2;			/該当しない時
+	leal VALUE(%ebx),%ecx; SPUSH3; !mark_data;
+mfa2:	%eax=PLIST(%ebx);		/ＰＬＩＳＴのチェック
+	CELLP; je mfa5;
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfa3;
+	leal PLIST(%ebx),%ecx; SPUSH3; !mark_data;
+mfa3:	%ebx+=$ATOMNAME;		/シンボルを１つ終えて次に移る
+mfa4:	%al=(%ebx); %ebx++;		/文字列の終端チェック
+	orb %al,%al; jne mfa4;
+	?l(symboltop,%ebx); jb mfa1;
+	ret;
+
+mfa5:	PUSH2;
+	 SET2_1; SET1(gbc_type);	/作業中のＧＢＣの型
+	 !l_member; NILP; je mfa7;
+	 CDR; CAR;			/コンパイルされたコード中のデータリスト
+mfa61:	 PUSH1;				/もし同じ型があればそのアドレスを記録
+	  CAR; FIXNUMP; jne mfa8;
+	  UNMASK1; SPUSH1; SET1((%eax)); !mark_data;
+mfa8:	 POP1; CDR; NILP; jne mfa61;
+mfa7:	POP2; jmp mfa3;
+
+/======================================
+/	コンス領域からの探索
+/======================================
+mark_from_cell:				/%edi : チェックする型
+	%ebx=cellarea; jmp mfc2;	/%ebx : チェックするセル上の位置
+
+mfc1:	%ebx+=$4; 			/次のセルへ(CARもCDRも)
+mfc2:	?l(freecell,%ebx); jb mfc3;	/セルの最後までチェックしたか？
+	ret;
+
+mfc3:	%eax=(%ebx);			/セルの中身
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfc1;
+	SPUSH2; !mark_data; jmp mfc1;
+
+/======================================
+/	配列領域からの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+mark_cell_from_array:
+	%ebx=arrayarea; %ecx=arraytop;
+mfa:	%ebx+=$4;			/配列の一つめはコンスではない
+	?l(%ecx,%ebx); jb mfae;		/配列の終わりか？
+	ret;
+
+mfae:	%eax=(%ebx);			/配列の内容がセルか？
+	?l(cellarea,%eax); jb mfa;	/セルのアドレスより小さい場合（要素数など）
+	?l(cellend,%eax); ja mfa;	/セルのアドレスより大きい場合（配列など）
+	SPUSH2; !mark_cell; jmp mfa;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+mark_from_array:
+	%ebx=arrayarea; %ecx=arraytop;
+	jmp mfar2;
+
+mfar1:	%ebx+=$4;			/配列の一つめはチェック不要
+mfar2:	?l(%ecx,%ebx); jb mfar3;
+	ret;
+
+mfar3:	%eax=(%ebx);
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfar1;
+	?l($ARRAYTAG,%edi); je mfar4;	/配列の中から配列を参照している場合は、
+	SPUSH2;				/参照位置が変わるためchange_arrayで書き直すので、
+mfar4:	!mark_data; jmp mfar1;		/マークのみ行い、ソフトウェアスタックには記録しない
+
+/======================================
+/	構造体領域からの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+mark_cell_from_struct:
+	%ebx=structarea; %ecx=structtop; jmp mfa
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+mark_from_struct:
+	%ebx=structarea; %ecx=structtop;
+mfsc1:	%ebx+=$4;			/構造体の一つめのデータはチェック不要
+	?l(%ecx,%ebx); jb mfsc3;
+	ret;
+
+mfsc3:	%eax=(%ebx);
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfsc1;
+	?l($STRUCTTAG,%edi); je mfsc4;	/構造体の中から構造体を参照している場合は、
+	SPUSH2;				/参照位置が変わるためchange_arrayで書き直すので、
+mfsc4:	!mark_data; jmp mfsc1;		/マークだけ行い、ソフトウェアスタックには記録しない
+
+/======================================
+/	ソフトウェアスタックからの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+mark_cell_from_stack:
+	%ebx=soft_stack_reserve;	/スタックの検査開始位置(ＧＢＣ開始前のスタック位置)
+cfs1:	?l(stackarea,%ebx); jne cfs2;	/スタック検査終了か(ひとつめのスタックはチェック不要)
+	ret;
+
+cfs2:	%ebx-=$4;			/ひとつ前のスタックへ移る
+	%eax=(%ebx);			/スタック内容がセルか？
+	?l(cellarea,%eax); jb cfs1;	/セルのアドレスより小さい場合（束縛印）
+	CELLP; jne cfs1;
+	SPUSH2; !mark_cell; jmp cfs1;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+mark_from_stack:
+	%ebx=soft_stack_reserve;	/スタックの検査開始位置(ＧＢＣ開始前のスタック位置)
+mfs1:	?l(stackarea,%ebx); jne mfs2;	/スタック検査終了か(ひとつめのスタックはチェック不要)
+	ret;
+
+mfs2:	%ebx-=$4; %eax=(%ebx);		/ひとつ前のスタックへ移る
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfs1;			/該当するか？
+	SPUSH2; !mark_data; jmp mfs1;
+
+/======================================
+/	印付け後の処理
+/======================================
+/--------------------------------------
+/	セルの並べ直し
+/--------------------------------------
+arrange_cell:
+	%edi=gbcarea; %esi=cellarea; %ecx=freecell;
+	%ecx-=%esi; %ecx+=%edi; 	/セル領域に対応するＧＢＣ領域の最後の位置
+ac1:	?l(%ecx,%edi); ja ac3;		/全てコピーしたか？
+	?l($0,(%edi)); jne ac2;
+	%edi+=$8; jmp ac1
+
+ac2:	%eax=(%edi); (%esi)=%eax;	/carのコピー
+	%eax=4(%edi); 4(%esi)=%eax;	/cdrのコピー
+	(%edi)=%esi;			/新しい位置の保存
+	%esi+=$8; %edi+=$8; jmp ac1;
+
+ac3:	freecell=%esi; ret;
+
+/--------------------------------------
+/	セル同士の参照の書き直し
+/--------------------------------------
+change_cell:				/セル同士の参照の書き直し
+	%esi=cellarea;
+chgc1:	?l(freecell,%esi); jb chgc2;	/全て書き換えたか？
+	ret;
+
+chgc2:	%eax=(%esi); CELLP; jne chgc3;
+	%eax+=diffc; %eax=(%eax);	/書き直し
+	(%esi)=%eax;
+chgc3:	%esi+=$4; jmp chgc1;		/car と cdr の両方
+
+/======================================
+/	配列の並べ直し
+/======================================
+arrange_array:
+	pusha;
+	%edi=gbcarea; %esi=arrayarea; %ecx=arraytop;
+	%ecx-=%esi; %ecx+=%edi; 	/配列領域に対応するＧＢＣ領域の最後の位置
+aac1:	?l(%ecx,%edi); ja aac3;		/全てコピーしたか？
+	?l($0,(%edi)); jne aac2;	/印が付いていればコピー
+	%edi+=$4; jmp aac1;		/ここは４バイト単位
+
+aac2:	PUSH3;
+	%ebx=%edi; %ebx-=diffc;		/印に対応する配列の位置を求める
+	%ecx=ARRAYS(%ebx);
+	 %ecx+=%ecx; %ecx+=%ecx; %ecx+=$4;
+	 %ecx+=$ARRAYS;	/所要バイト数
+	[%esi;
+aacl:	 ?l($0,%ecx); je aacm
+	 %eax=(%ebx); (%esi)=%eax;	/コピー
+	 %ebx+=$4; %esi+=$4; %ecx-=$4;
+	 jmp aacl;
+
+aacm:	]%ecx;
+	(%edi)=%ecx; %edi+=$4;		/新しい位置の保存
+	POP3; jmp aac1;
+
+aac3:	arraytop=%esi;
+	popa; ret;
+
+/--------------------------------------
+/	配列同士の参照の書き直し
+/--------------------------------------
+change_array:				/配列同士の参照の書き直し
+	%esi=arrayarea; %ecx=arraytop;
+chga1:	?l(%ecx,%esi); jb chga2;	/全て書き換えたか？
+	ret;
+
+chga2:	%eax=(%esi);
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne chga3;
+	UNMASK1; %eax+=diffc;		/書き直し
+	%eax=(%eax); xorl %edi,%eax; (%esi)=%eax;
+chga3:	%esi+=$4; jmp chga1;
+
+/======================================
+/	構造体の並べ直し
+/======================================
+arrange_struct:
+	pusha;
+	%edi=gbcarea; %esi=structarea; %ecx=structtop;
+	%ecx-=%esi; %ecx+=%edi;		/構造体領域に対応するＧＢＣ領域の最後の位置
+sac1:	?l(%ecx,%edi); ja sac3;		/全てコピーしたか？
+	cmpl $0,(%edi); jne sac2;	/印が付いていればコピー
+	%edi+=$4; jmp sac1;		/ここは４バイト単位
+
+sac2:	PUSH3;
+	%ebx=%edi; %ebx-=diffc;		/印に対応する構造体の位置を求める
+	%ecx=(%ebx);
+	[%esi;
+sacl:	 ?l($0,%ecx); je sacm
+	 %eax=(%ebx); (%esi)=%eax;	/コピー
+	 %ebx+=$4; %esi+=$4; %ecx--;
+	 jmp sacl;
+
+sacm:	]%ecx;
+	(%edi)=%ecx; %edi+=$4;		/新しい位置の保存
+	POP3; jmp sac1
+
+sac3:	structtop=%esi;
+	popa; ret;
+
+/--------------------------------------
+/	構造体の書き直し
+/--------------------------------------
+change_struct:				/構造体同士の参照の書き直し
+	%esi=structarea; %ecx=structtop;
+	jmp chga1;
+
+/======================================
+/	浮動小数点数の並べ直し
+/======================================
+arrange_floanum:
+	pusha;
+	%edi=gbcarea; %esi=floanumarea; %ecx=floanumtop;
+	%ecx-=%esi; %ecx+=%edi; 	/浮動小数点領域に対応するＧＢＣ領域の最後の位置
+fac1:	?l(%ecx,%edi); ja fac3;	/全てコピーしたか？
+	?l($0,(%edi)); jne fac2;	/印が付いていればコピー
+	%edi+=$8; jmp fac1;
+
+fac2:	%ebx=%edi; %ebx-=diffc;		/印に対応する数値の位置を求める
+	%eax=(%ebx); (%esi)=%eax;	/コピー
+	%eax=4(%ebx); 4(%esi)=%eax;
+	(%edi)=%esi; %esi+=$8; %edi+=$8; /新しい位置の保存
+	jmp fac1;
+
+fac3:	floanumtop=%esi;
+	popa; ret;
+
+/======================================
+/	文字列の並べ直し
+/======================================
+arrange_string:
+	pusha;
+	%edi=gbcarea; %esi=stringarea; %ecx=stringtop;
+	%ecx-=%esi; %ecx+=%edi; 	/文字列領域に対応するＧＢＣ領域の最後の位置
+sgac1:	?l(%ecx,%edi); ja sgac3;	/全てコピーしたか？
+	?l($0,(%edi)); jne sgac2;	/印が付いていればコピー
+	%edi+=$4; jmp sgac1;		/ここは４バイト単位
+
+sgac2:	PUSH3;
+	%ebx=%edi; %ebx-=diffc;		/印に対応する文字列の位置を求める
+	[%esi;
+sgacl:	 %al=(%ebx); movb %al,(%esi);	/コピー
+	 ?b($0,%al); je sgacm
+	 %ebx++; %esi++; jmp sgacl;
+
+sgacm:	]%ecx;
+	(%edi)=%ecx; %edi+=$4;		/新しい位置の保存
+	%esi+=$4; andl $0xfffffffc,%esi; /４バイト単位のアドレスにする
+	POP3; jmp sgac1;
+
+sgac3:	stringtop=%esi;
+	popa; ret;
+
+/======================================
+/	データの書き換え
+/======================================
+change_data:
+	?l(soft_stack_reserve,%ebp); ja cd1;
+	ret;
+
+cd1:	SPOP1;
+	PUSH1;
+	 %eax=(%eax); UNMASK1; %eax+=diffc;
+	 %eax=(%eax); xorl %edi,%eax;	/%edi : 設定する型
+	POP2; (%ebx)=%eax;
+	jmp change_data;
+
+/======================================
+/	ＧＢＣの共通ルーチンなど
+/======================================
+/--------------------------------------
+/	ＧＢＣ作業領域の初期化
+/--------------------------------------
+clear_gbcarea:
+	PUSH1; %eax=gbcarea;		/初期値はＧＢＣ作業領域開始番地
+icl:	 (%eax)=$0; %eax+=$4;
+	 ?l(%eax,gbcend); jne icl;	/ＧＢＣ作業領域の最後か？
+	POP1; ret;
+
+/--------------------------------------
+/	データ型設定
+/--------------------------------------
+@set_type:
+	xorl $SYMBOLTAG,%eax;		/コンパイルされたコードのチェックに必要
+	gbc_type=%eax; ret;
+
+/--------------------------------------
+/	コピー距離設定
+/--------------------------------------
+@set_diffc:				/対象領域とＧＢＣ作業領域との距離を設定
+	%eax=gbcarea; %eax-=%ebx; 	/%ebx : 対象領域の開始位置
+	diffc=%eax; ret;
+
+/--------------------------------------
+/	汎用印し付けルーチン
+/--------------------------------------
+marks:	!clear_gbcarea;			/コンス複写領域の初期化
+	!mark_from_atom;		/アトムからの印付け
+	!mark_from_cell;		/コンスからの印付け
+	!mark_from_array;		/配列からの印付け
+	!mark_from_struct;		/構造体からの印付け
+	jmp mark_from_stack;		/スタックからの印付け
+
+/--------------------------------------
+/	セルの印付け
+/--------------------------------------
+mark_cell:				/マーク付け
+	pusha;
+	 %esi=diffc; !cc;		/コンス領域とＧＢＣ作業領域の距離
+	popa;
+	ret;
+
+cc:	CELLP; je cc2;			/同じセルを二度コピーしないようにすべき
+	ret;				/(既に印があるかの確認にかかる時間とのバランス)
+
+cc2:	!copy_one_cell;			/再帰的にセルをコピー
+	PUSH1; CAR; !cc; POP1;
+	CDR; jmp cc;
+
+copy_one_cell:
+	%ebx=%eax; %ebx+=%esi;		/%eax:コピーしようとするセル一つ %ebx:コピー先
+	%ecx=(%eax); (%ebx)=%ecx;	/carのコピー
+	%ecx=4(%eax); 4(%ebx)=%ecx;	/cdrのコピー
+	ret;
+
+/--------------------------------------
+/	印付け（汎用）
+/--------------------------------------
+mark_data:				/%eax:コピーしようとするデータ
+	PUSH1; UNMASK1; %eax+=diffc; (%eax)=$BINDMARK1; POP1; ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+CELL_OUT_ERR:				/回収可能なセル領域がないとき
+	ERR(2001);
+
+FLOANUM_OUT_ERR:			/回収可能な浮動小数点領域がないとき
+	ERR(2002);
+
+ARRAY_OUT_ERR:				/回収可能な配列領域がないとき
+	ERR(2003);
+
+STRUCT_OUT_ERR:				/回収可能な構造体領域がないとき
+	ERR(2004);
+
+STRING_OUT_ERR:				/回収可能な文字列領域がないとき
+	ERR(2005);
+
+/======================================
+/	データ領域
+/======================================
+@gbc_type:	dd	0		/ＧＢＣを行う型
+diffc:		dd	0		/ＧＢＣ作業領域アドレス指示データ
+soft_stack_reserve:
+		dd	0		/ソフトウェアスタック退避領域
+

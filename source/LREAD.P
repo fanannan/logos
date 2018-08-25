@@ -1,0 +1,1415 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/ コモンリスプ第２２章「入出力」に対応
+/======================================
+
+	.file	"lread.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＲＥＡＤ＞
+/--------------------------------------
+@l_read:
+	NILP; je read2;
+	HANDLEP; jne NON_FILE_MODE_ERR;
+	FIXNUMPE; jmp read3;
+
+read2:	%eax=$CON;
+read3:	%esi=$l_read;			/エラー用
+	%esi-=$FUNCJMPT; FUNCJMP=%esi;
+	pushl infile;			/バッファは待避させないことに注意
+	 pushl parencounter;
+	  ?l($CON,%eax); je read4;	/コンソール入力の場合はバッファを初期化しない
+	  !clear_buffers;
+read4:	  UNMASK1; infile=%eax;		/ファイルハンドルの設定
+	  parencounter=$0;		/括弧カウンタの初期化
+	  !read_list0;			/read本体の呼び出し
+	 popl parencounter;
+	popl infile;
+	ret;
+
+/--------------------------------------
+/	＜ＲＥＡＤ−ＬＩＮＥ＞
+/--------------------------------------
+@l_read_line:
+	pushl infile;
+	 pushl parencounter;
+	  NILP; je rl1;			/入力ハンドルの設定
+	  FIXNUMPE; UNMASK1;
+	  infile=%eax; jmp rl2;
+rl1:	  infile=$CON;
+rl2:	  SET2(parencounteradr);
+	  SET3(VALUE(%ebx));		/paren-counterを待避
+	  VALUE(%ebx)=$NILTAG;		/paren-counterを無しに設定
+	  PUSH3;
+	   SET2(promptadr);
+	   SET3(VALUE(%ebx));		/promptを待避
+	   PUSH3;
+	   VALUE(%ebx)=$NILTAG;		/promptを無しに設定
+	   PUSHBUFFER
+	    !clear_buffers;
+	    %eax=infile; ?l($CON,%eax); je rl3;
+	    %ebx=$buffer; !without_cache; jmp rl4;
+
+rl3:	    !get_one_line;		/bufferに入力が返る
+rl4:	    %eax=$buffer; %ebx=$namebuffer;
+
+rlsn1:	movb (%eax),%cl;		/入力の終端探索と入力中の""の処理
+	?b($0,%cl); je rlsn2; 		/namebufferへ転送
+	?b($RET_CHR,%cl); je rlsn2;
+	?b($LF_CHR,%cl); je rlsn2;
+	?b($ESC_CHR,%cl); je ssn1;
+	?b($STR_SEPARATER,%cl); jne ssn2;
+ssn1:	movb $ESC_CHR,(%ebx); %ebx++;
+ssn2:	movb %cl,(%ebx); %eax++; %ebx++;
+	jmp rlsn1
+
+rlsn2:	%eax=$buffer; %ebx=$namebuffer;
+
+rld:	movb (%ebx),%cl;		/namebufferからbufferへ転送
+	?b($0,%cl); je rlde;
+	movb %cl,(%eax); %eax++; %ebx++;
+	jmp rld;
+
+rlde:	     movb $STR_SEPARATER,(%eax); /文字列終端
+	     %eax++;
+	     movb $0,(%eax);
+	     bufferpointer=$-1;
+	     !read_string		/文字列への変換
+
+	    POPBUFFER
+	   POP2;			/promptの復帰
+	   %ecx=promptadr; VALUE(%ecx)=%ebx;
+	  POP2;				/parencounter-flagの復帰
+	  %ecx=parencounteradr; VALUE(%ecx)=%ebx;
+	 popl parencounter;
+	popl infile;
+	ret;
+
+
+without_cache:
+	!one; %al=one_char_buffer;
+	?b($LF_CHR,%al); je rl5;
+	?b($RET_CHR,%al); je rl5;
+	?b($0,%al); je rl5;
+	movb %al,(%ebx); %ebx++;
+	jmp without_cache;
+
+rl5:	movb $0,(%ebx); ret;
+
+one:	 <;
+	  %eax=infile; UNMASK1; PUSH1;	/ファイル
+	  pushl $1;			/回数
+	  pushl $1;			/バッファサイズの指定
+	  pushl $one_char_buffer;	/バッファ開始位置
+	  !_fread;
+	 >; ret;
+
+/--------------------------------------
+/	＜ＲＥＡＤ−ＣＨＡＲ＞
+/--------------------------------------
+@l_read_char:
+	NILP; je rdc1;
+	FIXNUMP; jne NON_FILE_MODE_ERR
+	jmp rdc2;
+
+rdc1:	SET1($__iob);			/コンソール入力
+rdc2:	<; UNMASK1; PUSH1; !_fgetc; >; 
+	?l($0,%eax); jl SETNIL;
+	jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＵＮＲＥＡＤ−ＣＨＡＲ＞
+/--------------------------------------
+@l_unread_char:
+	CHARACTERP; jne NOT_CHAR_ERR;
+	FIXNUMP2; jne NON_FILE_MODE_ERR;
+	<;
+	 UNMASK1; UNMASK2;
+	 PUSH2; PUSH1; !_ungetc;
+	>; 
+	?l($0,%eax); jl SETNIL;
+	jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＰＥＥＫ−ＣＨＡＲ＞
+/--------------------------------------
+@l_peek_char:
+	PUSH1; !l_read_char; POP2;
+	PUSH1; !l_unread_char; POP1; ret;
+
+/--------------------------------------
+/	＜ＣＬＥＡＲ−ＩＮＰＵＴ＞
+/--------------------------------------
+@l_clear_input:
+	!clear_buffers; jmp SETNIL;
+
+/--------------------------------------
+/＜ＲＥＡＤ−ＦＲＯＭ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_read_from_string:
+	STRINGP; jne READ_FROM_STRING_ERR;
+	UNMASK1;
+	PUSHBUFFER;
+	 %ebx=$buffer;
+rfs:	 %cl=(%eax); movb %cl,(%ebx);
+	 ?b($0,%cl); je rfs2;		/bufferへ転送
+	 %eax++; %ebx++; jmp rfs;
+
+rfs2:	 %ebx=$buffer; bufferpointer=$0;
+	 %al=(%ebx);
+	 !read_list01;
+	POPBUFFER;
+	ret;
+
+/--------------------------------------
+/	＜ＲＥＡＤ−ＢＹＴＥ＞
+/--------------------------------------
+@l_read_byte:
+	FIXNUMP; jne NON_FILE_MODE_ERR
+	<; UNMASK1; PUSH1; !_fgetc; >; 
+	?l($0,%eax); jl SETNIL;
+	jmp SETNUM
+
+/--------------------------------------
+/	＜Ｓ式の読み込み＞
+/
+/	ファイルハンドルから読み込んで，
+/	Ｓ式を返す
+/--------------------------------------
+@read_list0:
+	!skip_space;			/一文字読み込み
+	EOFP; jne read_list01;		/Ｓ式の途中でファイルが終了した場合
+	ret;				/EOFTAGを返す
+
+read_list01:
+	?b($RPAR_CHR,%al); je L3;	/")"
+	?b($DOT_CHR,%al); jne L2;	/"."
+L3:	NEXT_CHAR;			/いきなり右括弧やドットならエラー
+	jmp RPAR_DOT_ERR;
+
+L2:	?b($LPAR_CHR,%al); jne read_macro_and_atom;	/"("
+	NEXT_CHAR;			/リストの場合
+	jmp read_list;
+
+read_macro_and_atom:			/リストでない場合
+	?b($BACKQUOTE_CHR,%al); je read_backquote;	/backquote("`")の略記の場合
+	?b($SHARP_CHR,%al); je read_sharp;	/シャープサインマクロの場合
+	?b($QUOTE_CHR,%al); je read_quote;	/quoteの略記の場合
+	?b($COMMA_CHR,%al); je read_comma;	/comma(",")の略記の場合
+	?b($PLUS_CHR,%al); je read_number;	/"+"の場合
+	?b($MINUS_CHR,%al); je read_number;	/"-"の場合
+	?b($STR_SEPARATER,%al); je read_string;	/文字列の場合
+	?b($SPC_CHR,%al); jnb L14;		/制御文字の場合
+	jmp	ILLIGAL_CHAR_ERR		/不正な文字がある場合
+
+L14:	!read_read_base;		/数字の場合
+	!check_radix;
+	orb %ch,%ch; je read_number;
+	jmp	read_symbolatom;	/シンボルアトムの場合
+
+/--------------------------------------
+/	＜リストの読み込み＞
+/--------------------------------------
+@read_list:
+	incl parencounter		/括弧の深さの記録（プロンプトと表示）
+read_list2:
+	!skip_space;			/一文字読み込み
+	EOFP; je EOFERR;		/ファイル終了の場合
+	?b($RPAR_CHR,%al); jne L17; 	/")"
+	NEXT_CHAR;
+	decl parencounter;		/括弧カウンタ減らす
+	jmp SETNIL;			/右括弧の場合nilを返す
+
+L17:	?b($LPAR_CHR,%al); jne L18; 	/"("
+	NEXT_CHAR;
+	!read_list;			/左括弧の場合続くリストのcarを読む
+	SPUSH1;
+	 !read_list2; SET2_1;		/続いてcdrを読む
+	SPOP1;
+	jmp l_cons;			/carとcdrをリストに組み上げる
+
+L18:	?b($DOT_CHR,%al); jne L19;	/"."
+	NEXT_CHAR;			/ドット対
+	!skip_space;
+	EOFP; je EOFERR;		/ファイル終了の場合
+	?b($RPAR_CHR,%al); je RPAR_AFTER_DOT_ERR;	/ドットの後の右括弧はエラー
+L21:	!read_list0;			/cdrを読む（ここはread_list0を使う）
+	SPUSH1;
+	 !skip_space;
+	 ?l($EOFTAG,%eax); je EOFERR;	/ファイル終了の場合
+	 movb %al,%cl;
+	 decl parencounter;		/括弧カウンタ減らす
+	SPOP1;
+	?b($RPAR_CHR,%cl); jne DOT_AFTER_LPAR_ERR;
+L23:	NEXT_CHAR;
+	ret;
+
+L19:	!read_macro_and_atom;
+	SPUSH1;
+	 !read_list2; SET2_1;		/続いてcdrを読む
+	SPOP1;
+	jmp l_cons;			/アトムとcdrを組み上げる
+
+/--------------------------------------
+/	＜シャープマクロの読み込み＞
+/--------------------------------------
+@read_sharp:
+	NEXT_CHAR; !skip_space;
+	EOFP; je EOFERR;
+	?b($0x30,%al); je c_exit;	/#0:強制脱出
+L240:	?b($QUOTE_CHR,%al); jne L25;	/functionの略記
+	SET1(functionadr); orl $SYMBOLTAG,%eax
+	jmp rm1;
+
+L25:	?b($DOT_CHR,%al); jne L26;	/READ-TIME-EVALUATION
+	NEXT_CHAR; !read_list0;
+	PUSH1;
+	 %eax=read_eval_adr; %eax=VALUE(%eax);
+	 ?l($NILTAG,%eax);
+	POP1; je READ_EVAL_ERR;
+	jmp l_eval;
+
+L26:	?b($0x42,%al); je readb;	/２進数 "B" "b"
+	?b($0x62,%al); jne L27;
+readb:	!read_read_base;		/ch:基数
+	PUSH3;
+	 %ecx=$2;
+readn:	 NEXT_CHAR; !read_number2;
+	POP3;
+	SYMBOLP; je SHARP_SIGN_ERR1;	/数値として読み取れなかった場合
+L29:	%edi=readbaseadr;		/基数を元に戻す
+	xorl $NUMBERTAG,%ecx;		/前のバージョンでバグのあった所
+	VALUE(%edi)=%ecx;
+	ret;
+
+L27:	?b($0x4f,%al); je L31; 		/８進数
+	?b($0x6f,%al); jne L30;
+L31:	!read_read_base;		/ch:基数
+	PUSH3;
+	 %ecx=$8; jmp readn;
+
+L30:	?b($0x4d,%al); je L33;		/１０進数
+	?b($0x6d,%al); jne L32;
+L33:	!read_read_base;		/ch:基数
+	PUSH3;
+	 %ecx=$10; jmp readn;
+
+L32:	?b($0x58,%al); je L35;		/１６進数
+	?b($0x78,%al); jne L34;
+L35:	!read_read_base;		/ch:基数
+	PUSH3;
+	 %ecx=$16; jmp readn;
+
+L34:	?b($YEN_CHR,%al); je read_character;	/文字型
+	?b($RPAR_CHR,%al); je SHARP_SIGN_ERR1;	/作為的エラー
+	?b($0x3c,%al); je SHARP_SIGN_ERR1;	/"<" 作為的エラー
+L41:	?b($0x23,%al); jne L42;			/"#=" リファレンスラベル
+	jmp SHARP_SIGN_ERR2;
+
+L42:	?b($PLUS_CHR,%al); je SHARP_SIGN_ERR2;	/READ-TIME CONDITION
+	?b($MINUS_CHR,%al); je SHARP_SIGN_ERR2;	/READ-TIME CONDITION
+/	?b($0x7c,%al) je SHARP_SIGN_ERR2	/"|" コメント
+	?b($0x52,%al); je SHARP_SIGN_ERR2;	/"R" 基数指定
+	?b($0x72,%al); je SHARP_SIGN_ERR2;
+	?b($0x3a,%al); je SHARP_SIGN_ERR2;	/":" UNDEFINED SYMBOL
+	?b($0x2a,%al); je SHARP_SIGN_ERR2;	/"*" ビットベクタ
+	?b($COMMA_CHR,%al); jne L50;		/LOAD-TIME-EVALUATION
+	NEXT_CHAR;				/??
+	jmp SHARP_SIGN_ERR2;
+
+L50:	?b($0x3d,%al); je SHARP_SIGN_ERR2;	/"=" LABEL FOLLOWING OBJECT
+	?b($0x41,%al); je read_array; 		/"A" 配列型
+	?b($0x61,%al); je SHARP_SIGN_ERR2;
+	?b($0x50,%al); je SHARP_SIGN_ERR2;	/"P" パス型
+	?b($0x70,%al); je SHARP_SIGN_ERR2;
+	?b($0x53,%al); je read_struct;		/"S" 構造体
+	?b($0x73,%al); je SHARP_SIGN_ERR2;
+	?b($0x43,%al); je SHARP_SIGN_ERR2;	/"C" 複素数型
+	?b($0x63,%al); je SHARP_SIGN_ERR2;
+	?b($0x30,%al); jnge L60; 		/"0" 要素指定
+	?b($0x3a,%al); jnl L60; 		/"9"+1
+	jmp SHARP_SIGN_ERR2;
+
+L60:	?b($LPAR_CHR,%al); je read_array1;	/"("シングルベクタ
+	NEXT_CHAR;				/??
+	jmp SHARP_SIGN_ERR2;
+
+/--------------------------------------
+/＜バッククオート略記式の読み込みと処理＞
+/--------------------------------------
+@read_backquote:
+	SET1(backquoteadr); orl $SYMBOLTAG,%eax;
+	jmp rm1;
+
+/--------------------------------------
+/	＜配列（ベクタ）の読み込み＞
+/--------------------------------------
+read_array:				/#A(
+	NEXT_CHAR;
+read_array1:				/#(
+	!read_list0; jmp l_vector;	/現状は１次元配列のみサポート
+
+/--------------------------------------
+/	＜構造体の読み込み＞
+/--------------------------------------
+read_struct:				/#S(
+	NEXT_CHAR;
+	!read_list0; jmp l_defstruct;
+
+/--------------------------------------
+/	＜クオート略記式の読み込み＞
+/--------------------------------------
+@read_quote:
+	SET1(quoteadr)			/quoteというアトムを設定
+	orl $SYMBOLTAG,%eax
+rm1:	SPUSH1
+	NEXT_CHAR			/以下は他の略記式との共通部分
+	 !read_list0		/引用されるＳ式を読む
+	 SET2NIL			/引用されるＳ式にもう一段括弧をつける
+	 !l_cons
+	 SET2_1				/組み上げたＳ式をcdrに割当る
+	SPOP1				/略記されていた表現をcarに割当る
+	jmp l_cons			/略記表現と引用されたＳ式を組み上げる
+
+@l_kwote:
+	PUSH2; PUSH1;
+	  SET1(quoteadr); orl $SYMBOLTAG,%eax;
+       SPUSH1;
+	 POP1;
+	 SET2NIL; !l_cons; SET2_1;
+       SPOP1;
+	 !l_cons;
+	POP2; ret;
+
+/--------------------------------------
+/	＜コンマ略記式の読み込み＞
+/--------------------------------------
+@read_comma:
+	NEXT_CHAR; !skip_space;
+	EOFP; je EOFERR;
+L62:	cmpb $AT_CHR,%al; jne L63;
+	SET1(atmarkadr);		/",@"の場合
+	orl $SYMBOLTAG,%eax;
+	jmp L64;
+
+L63:	SET1(commaadr);			/"," の場合
+	BACK_CHAR;
+L64:	orl $SYMBOLTAG,%eax;
+	jmp rm1;
+
+/--------------------------------------
+/	＜シンボルアトムの読み込み＞
+/
+/	バッファから文字を読み込み，
+/	すでに定義されたアトムなら，
+/	アトムそのものを返し，
+/	存在しなければ，登録してから
+/	アトムそのものを返す
+/--------------------------------------
+@read_symbolatom:
+	pushl %ebp;
+	 !seek_atom; 			/ %eax : 前のシンボルのポインタ位置
+	 orl %ebx,%ebx; jne L96;	/ %ebx : 0 なら新しいシンボル
+	 !make_atom;
+L96:	 PUSH1;
+	  UNMASK1; ?l(niladr,%eax); je read_nil;
+	  UNMASK1; ?l(eofadr,%eax); je read_eof;
+	  UNMASK1; ?l(unkadr,%eax); je read_unk;
+	 POP1;
+	popl %ebp;
+	ret;
+
+read_eof: SET1($EOFTAG); jmp read_log_value;
+read_unk: SET1($UNKTAG); jmp read_log_value;
+read_nil: SET1NIL;
+read_log_value:
+	 POP2;
+	popl %ebp;
+	ret;
+
+/--------------------------------------
+/	＜シンボルアトムを探す＞
+/
+/	バッファから文字を読み込み
+/	ハッシュテーブルを用いて，
+/	アトムが定義されているか調べ，
+/	あれば，アトムそのものを返す
+/	ない場合は，登録されるべき
+/	ハッシュテーブル上の位置を返す
+/--------------------------------------
+@seek_atom:
+
+/bufferからnamebufferに印字名を取り出す %ecxはハッシュコード計算用
+
+	movl $namebuffer,%ebp	/%ec&ax=0,%ebp=$namebuffer
+	xorl %eax,%eax
+	xorl %ecx,%ecx
+L97:	TAKE_CHAR
+	orb	%al,%al 		/if(%al==0,ret,lf.....)jmp end_of_copy
+	je L98
+	cmpb	$RET_CHR,%al
+	je L98
+	cmpb	$LF_CHR,%al
+	je L98
+	cmpb	$HT_CHR,%al
+	je L98
+	cmpb	$SPC_CHR,%al
+	je L98
+	cmpb	$LPAR_CHR,%al
+	je L98
+	cmpb	$RPAR_CHR,%al
+	je L98
+	cmpb	$QUOTE_CHR,%al
+	je L98
+	cmpb	$REM_CHR,%al
+	je L98
+	cmpb	$STR_SEPARATER,%al
+	je L98			/小文字変換
+	cmpb	$0x40,%al 	/"A"-1
+	jng	L99
+	cmpb	$0x5b,%al 	/"Z"+1
+	jnl L99
+	addb	$0x20,%al 	/"a"-"A"
+L99:					/特殊コードの場合
+	cmp	$ESC_CHR,%al
+	jne	L100
+	NEXT_CHAR
+	TAKE_CHAR			/%al=skip_space()
+	cmpb	$0x40,%al 	/"A"-1
+	jng	L992
+	cmpb	$0x4b,%al 	/"Z"+1
+	jnl L992
+	addb	$0x20,%al 	/"a"-"A"
+L992:
+	cmpb	$0x6e,%al 	/"n"
+	jne	L101
+	movb	$RET_CHR,(%ebp)
+	inc	%ebp
+	movb	$LF_CHR,%al
+L101:
+	cmpb	$0x72,%al 	/"r" 復改
+	jne	L102
+	movb	$LF_CHR,%al
+L102:
+	cmpb	$0x73,%al 	/"s" 空白
+	jne	L102b
+	movb	$SPC_CHR,%al
+L102b:
+	cmpb	$0x74,%al 	/"t" タブ
+	jne	L103
+	movb	$HT_CHR,%al
+L103:
+	cmpb	$0x61,%al 	/"a" ベル
+	jne	L104
+	movb	$BELL_CHR,%al
+L104:
+	cmpb	$0x65,%al 	/"e" エスケープコード
+	jne	L100
+	movb	$DOSESC_CHR,%al
+L100:
+
+/	pusha
+/	PRCHR
+/	popa
+
+	!kanji			/漢字の場合は１文字進める
+	movb	%al,(%ebp)
+	NEXT_CHAR
+	inc	%ebp
+	addl %eax,%ecx		/%ecx:hash code
+	jmp	L97
+L98:
+	movb	$0,(%ebp)		/印字名終了を示す
+
+/ハッシュコード計算（ハッシュテーブルは255以下）
+
+	movl %ecx,%eax
+	movl $0,%edx
+	movl $HASHSIZE,%ebx
+	div	%ebx
+	movl %edx,%eax		/%eax:ハッシュコード（余り）
+
+/	!prnt_hash1
+
+/ハッシュテーブルの中身を見る
+
+	addl %eax,%eax		/%eax*=4
+	addl %eax,%eax
+	addl $hashtbl,%eax
+	movl (%eax),%ebx		/ハッシュテーブルの中身
+
+/	pusha
+/	PREAX
+/	movl %ebx,%eax
+/	PREAX
+/	popa
+
+/	!prnt_bufs
+/	!prnt_hash2
+
+/ハッシュテーブルに登録されていない場合
+/登録されるべきハッシュテーブル上の位置を返す
+
+	orl %ebx,%ebx		/%ebx:ハッシュテーブルの中身
+	jne	L106			/テーブルの中身がゼロなら、
+
+/	pusha
+/	pushl $ESA
+/	PRSTR
+/	popa
+
+	ret				/%eax:登録される位置 %ebx:0 を返す
+
+ESA:	asz	"\nNew atom found!\n"
+
+
+/ハッシュテーブルの中身（アトムの位置）から順に同一のアトムを探す
+
+L106:
+ea2:	movl %ebx,%edi		/ %edi :次のアトムへのポインタ
+	addl $20,%ebx		/ %ebx :印字名の位置
+	movl $namebuffer,%esi
+ea3:					/ 印字名の比較
+	movb	(%esi),%al
+	cmpb	(%ebx),%al
+	je L107
+	jmp	ea1			/ 同じ文字でなければ、
+L107:
+	orb	%al,%al
+	jne	L108
+	SET1(%edi)			/ 既存アトムの場合
+	orl $SYMBOLTAG,%eax
+
+/	pusha
+/	pushl $FE
+/	PRSTR
+/	popa
+/	pusha
+/	PREAX
+/	popa
+
+	ret;
+L108:
+	inc	%esi
+	inc	%ebx
+	jmp ea3
+
+FE:	asz	"\nFOUND old atom! : "
+FF:	asz	"\nAtom pointer    : "
+
+
+/最後のアトムかどうか（ポインタが空か）
+
+ea1:
+
+/	pusha
+/	pushl $FF
+/	PRSTR
+/	popa
+/	pusha
+/	movl %edi,%eax
+/	PREAX
+/	popa
+
+	cmpl $0,(%edi)		/ 次のアトムへのポインタの中身
+	je L110
+/	if(bp>+symbolend)		/ アトムエリアの終わりとなっていないか
+/		{pop si/ ERROUTMSG ATOMOUTERR/}/
+	movl (%edi),%ebx
+	jmp ea2
+L110:
+
+/ 登録されていない場合、登録されるべき位置を返す
+
+/	pusha
+/	pushl $MN
+/	PRSTR
+/	popa
+/	pusha
+/	PREAX
+/	popa
+
+	movl %edi,%eax
+	movl $0,%ebx
+	ret;
+
+MN:	asz	"\nto be located at : "
+
+kanji:					/漢字の処理
+	cmpb	$0x80,%al
+	jbe	gn3			/80h以下 81h-9fh
+	cmpb	$0x9f,%al
+	jbe	gn2			/9fh以下
+gn1:	cmp	$0x0df,%al
+	jbe	gn3			/dfh以下e0h-fch
+	cmp	$0x0fch,%al
+	ja	gn3			/fchより上
+gn2:					/漢字１バイト目
+	mov	%al,(%ebp)
+	inc	%ebp
+	NEXT_CHAR
+	TAKE_CHAR
+gn3:	ret;
+
+/--------------------------------------
+/	＜シンボルアトムを作る＞
+/
+/	namebufferから文字列を読み取り，
+/	ハッシュテーブルまたは同一
+/	ハッシュコードのアトムに連結
+/	してアトムを登録する
+/--------------------------------------
+@make_atom:				/アトムエリアが満杯か？
+	%ebx=$ATOMNAME; %ebx+=%ebx;	/アトムの最小メモリ使用量
+	%ebx+=symboltop;		/symboltop:アトム領域の使用位置
+	?l(symbolend,%ebx); ja ATOM_OUT_ERR;
+
+	movl symboltop,%ebx
+	movl %ebx,(%eax)		/%eax:前のアトム/ハッシュテーブルから
+					/このアトムを指すポインタ
+	movl $0,(%ebx)			/次のアトムへのポインタ
+	movl $UNKTAG,VALUE(%ebx)	/値
+	movl $UNKTAG,PLIST(%ebx)	/plist(unknown)
+	movl $UNKTAG,FUNCTION(%ebx)	/関数のポインタ
+	movl $UNKTAG,FUNCTYPE(%ebx)	/関数のタイプと引数
+
+	addl $20,%ebx			/20
+	movl $namebuffer,%edi		/印字文字列の設定
+L112:	movb	(%edi),%al
+	orb  %al,%al; je L113;
+	movb %al,(%ebx);
+	%ebx++; %edi++;
+	?l(symbolend,%ebx); jna L112;	/アトムエリアが満杯になっていないか
+	jmp ATOM_OUT_ERR;
+
+L113:	movb $0,(%ebx);			/終了の印
+	SET1(symboltop);
+	cmpb $0x3a,ATOMNAME(%eax);	/":"自己評価フォームか？
+	jne L114;
+	%ecx=symboltop; xorl $SYMBOLTAG,%ecx;
+	VALUE(%eax)=%ecx;		/自己自身を値にする
+	movl $CONST,FUNCTYPE(%eax);	/自己評価フォームは定数
+L114:	xorl $SYMBOLTAG,%eax;		/返り値
+	%ebx++; symboltop=%ebx;		/更新
+	ret;
+
+/--------------------------------------
+/	＜アトムの設定＞
+/
+/	組み込みアトムを登録し、
+/	関数内で参照が必要なアトムの
+/	位置の記録、値の設定をする
+/--------------------------------------
+@make_default_atoms:
+	movl $defatom,%ebx;
+mdh:	PUSH2;
+	 !culc_atom_adr;		/ %ebx : 文字列 を受け
+					/ %eax : シンボルを返す
+	 UNMASK1;			/ 実アドレスを取り出す
+	POP2;
+mdo:	cmpb	$0,(%ebx)		/ 終端位置確認
+	je mdn
+	%ebx++; jmp mdo;
+
+mdn:	cmpb $0x3a,ATOMNAME(%eax);	/":"
+	je mdn2;			/自己評価フォームは既に値が付けられている
+	movl 0(%ebx),%ecx		/値(通常のシンボル)
+	movl %ecx,VALUE(%eax)		/値
+	movl 12(%ebx),%ecx		/タグ
+	movl %ecx,FUNCTYPE(%eax)	/タグ
+	jmp mdn3;
+
+mdn2:	movl $CONST,FUNCTYPE(%eax);	/自己評価フォームは定数
+mdn3:	movl 4(%ebx),%ecx		/plist(以下は共通)
+	movl %ecx,PLIST(%eax)		/plist
+	movl 8(%ebx),%ecx		/関数
+	movl %ecx,FUNCTION(%eax)	/関数
+	addl $16,%ebx
+	cmpl $0,(%ebx); je setatomtable; /終端位置確認
+	jmp mdh;
+
+setatomtable:				/ アトムの位置のテーブルを作る
+	movl $atomtable,%edi		/ アトムの位置の設定
+atb:	movl 4(%edi),%ebx		/ テーブルから一つ取り出す
+	cmpl $0,%ebx			/ テーブルが終わりか？
+	je ate
+
+	pushl %edi
+	 !culc_atom_adr; UNMASK1;	/ アトム位置を探す
+	popl %edi
+	movl %eax,(%edi)		/ 位置をテーブルに登録
+	addl $8,%edi			/ 次のアトムへ
+	jmp atb
+
+ate:	movl tadr,%eax			/tの値設定
+	SET2_1
+	xorl $SYMBOLTAG,%eax
+	movl %eax,VALUE(%ebx)
+
+	movl elseadr,%ebx
+	movl %eax,VALUE(%ebx)
+	movl otherwiseadr,%ebx
+	movl %eax,VALUE(%ebx)
+
+	movl andrestadr,%eax		/&restの値設定
+	SET2_1
+	xorl $SYMBOLTAG,%eax
+	movl %eax,VALUE(%ebx)
+
+	movl $10,%edi			/基数を１０にする
+	xorl $NUMBERTAG,%edi
+	movl printbaseadr,%eax
+	movl %edi,VALUE(%eax)
+	movl readbaseadr,%eax
+	movl %edi,VALUE(%eax)
+
+	jmp clear_buffers
+
+/--------------------------------------
+/	＜アトムの位置探索＞
+/
+/	bxの指定するデータセグメントの
+/	アトムの印字名をバッファに写し，
+/	アトムへのポインタdxを返す
+/	（bxを用いたアトム登録にも使用可）
+/--------------------------------------
+@culc_atom_adr:
+	%esi=$buffer;			/ %ebx : 印字名
+L115:	movb (%ebx),%al;		/ buffer への印字名コピー
+	movb %al,(%esi);
+	%esi++; %ebx++;
+	orb %al,%al; jne L115;
+L116:	pushl bufferpointer;
+	 bufferpointer=$0;		/ バッファポインタ のクリア
+	 !read_symbolatom;
+	popl bufferpointer;		/ %eax : アトムの位置
+	ret;
+
+/--------------------------------------
+/	＜文字列の読み込み＞
+/
+/	文字列の印字名をアトム領域に写し，
+/	ポインタを返す
+/--------------------------------------
+@read_string:
+	%edi=stringtop; %ecx=$0;
+	pushl bufferpointer;
+rst01:	 NEXT_CHAR; TAKE_CHAR;		/文字列の長さを数える
+	 ?b($ESC_CHR,%al); je rst01;	/文字列の終端チェック
+	 ?b($STR_SEPARATER,%al); je rst02;
+	 orb %al,%al; je rst02;	
+	 %ecx++; jmp rst01;
+
+rst02:	popl bufferpointer;		/読み込みバッファよりも長い文字列はエラー
+	?l($NAMELENGTH,%ecx); jg TOO_LONG_STRING_ERR;
+	%ecx+=%edi; %ecx+=$8;
+	?l(stringend,%ecx); jl rst2;	/文字列領域が一杯になっていないか
+	SET1_3;
+	!string_gbc;
+	jmp read_string;
+
+rst2:	NEXT_CHAR; TAKE_CHAR;		/次の文字にポインタを移す
+	?b($STR_SEPARATER,%al); je rst3;
+	orb %al,%al; je STRING_EOF_ERR;	/文字が途中で終わっている場合エラー
+/	?b($LF_CHR,%al) je STRING_EOF_ERR;
+/	?b($RET_CHR,%al)je STRING_EOF_ERR;
+L119:	?b($ESC_CHR,%al); jne L121;	/エスケープ文字の処理
+	NEXT_CHAR; TAKE_CHAR;		/特殊コードの場合
+	?b($0x4e,%al); je L123;	 	/"N","n"
+	?b($0x6e,%al); jne L122;
+L123:	movb $RET_CHR,(%edi); %edi++; %al=$LF_CHR;
+L122:	?b($0x52,%al); je L125;		/"R","r" 復改
+	?b($0x72,%al); jne L124a;
+L125:	%al=$LF_CHR;
+L124a:	?b($0x53,%al); je L127a;	/"S","s" 空白
+	?b($0x73,%al); jne L124;
+L127a:	%al=$SPC_CHR;
+L124:	?b($0x54,%al); je L127;		/"T","t" タブ
+	?b($0x74,%al); jne L126;
+L127:	%al=$HT_CHR;
+L126:	?b($0x41,%al); je L129; 	/"A","a" ベル
+	?b($0x61,%al); jne L128;
+L129:	%al=$BELL_CHR;
+L128:	?b($0x45,%al); je L131;		/"E","e" エスケープ
+	?b($0x65,%al); jne L121;
+L131:	%al=$DOSESC_CHR;
+L121:	pusha;
+	 !kanjip_al;			/alは漢字一文字目か？
+	 ?b($0,%dl);
+	popa; jne L121e;
+	movb %al,(%edi); %edi++;	/漢字の場合
+	NEXT_CHAR; TAKE_CHAR;
+L121e:	movb %al,(%edi); %edi++;	/文字転送
+	jmp rst2;
+
+rst3:
+/	%edi++;
+	movl $0,(%edi);			/印字名終了を示す(4byte潰す)
+	SET1(stringtop);
+	xorl $STRINGTAG,%eax		/返り値
+	%edi+=$4; andl $0xfffffffc,%edi; /４バイト単位にする
+	stringtop=%edi;			/更新
+	NEXT_CHAR; ret;			/次の入力文字を指す
+
+/--------------------------------------
+/	＜文字型の読み込み＞
+/--------------------------------------
+	ALIGN
+read_character:
+	NEXT_CHAR
+	TAKE_CHAR			/１文字目
+	movl $0,%edx			/漢字の設定(%dh)を消す
+L66:	movb	%al,%dl
+	NEXT_CHAR
+	cmpb	$0x80,%dl 	/漢字１バイト目か？
+	jbe	cgn3			/80h以下 81h-9fh
+	cmpb	$0x9f,%dl
+	jbe	cgn2			/9fh以下
+cgn1:	cmpb	$0x0df,%dl
+	jbe	cgn3			/dfh以下e0h-fch
+	cmpb	$0x0fc,%dl
+	ja	cgn3			/fchより上
+cgn2:	movb	%dl,%dh			/漢字の時２バイト目を読む
+	pushl %eax
+	 TAKE_CHAR			/->%dl
+	 movb	%al,%dl
+	popl %eax
+	NEXT_CHAR
+	TAKE_CHAR			/漢字の後にデミリタがあるか
+	orb	%al,%al 		/なければエラー
+	je rc0
+	cmpb	$RET_CHR,%al
+	je rc0
+	cmpb	$LF_CHR,%al
+	je rc0
+	cmpb	$HT_CHR,%al
+	je rc0
+	cmpb	$SPC_CHR,%al
+	je rc0
+	cmpb	$LPAR_CHR,%al
+	je rc0
+	cmpb	$RPAR_CHR,%al
+	je rc0
+	cmpb	$DOT_CHR,%al
+	je rc0
+	cmpb	$QUOTE_CHR,%al
+	je rc0
+	cmpb	$STR_SEPARATER,%al
+	jne	CHAR_ERR1
+rc0:	movl $0,%eax
+	movw	%dx,%ax
+	xorl $CHARACTERTAG,%eax
+	ret;
+
+cgn3:	TAKE_CHAR			/まず２文字目をalに取得して
+					/文字名かどうか調べる
+	cmpb	$0x40,%al 	/"A"-1
+	jb	rc0
+	cmpb	$0x5b,%al 	/"Z"+1
+	jbe	rc1
+	cmpb	$0x60,%al 	/"a"-1	
+	jb	rc0
+	cmpb	$0x7b,%al 	/"z"+1
+	jae	rc0
+rc1:	mov	$CHARACTERTABLE,%edi	/文字名の探索
+rc2:	pushl bufferpointer
+	BACK_CHAR			/１文字目に戻る
+rc21:	TAKE_CHAR
+	cmpb	$0x61,%al 	/"a"
+	jnl L69
+	addb	$0x20,%al 	/"a"-"A"
+L69:	cmpb	(%edi),%al
+	jne	L70
+	inc	%edi
+	NEXT_CHAR
+	jmp	rc21
+
+L70:	cmpb	$0,(%edi)
+	jne	rc3			/文字名の終わりか
+L71:	subb	$0x20,%al 	/"a"-"A"
+	orb	%al,%al
+	je L73
+	cmpb	$RET_CHR,%al
+	je L73
+	cmpb	$LF_CHR,%al
+	je L73
+	cmpb	$HT_CHR,%al
+	je L73
+	cmpb	$SPC_CHR,%al
+	je L73
+	cmp	$LPAR_CHR,%bl 	/%bl
+	je L73
+	cmpb	$RPAR_CHR,%al
+	je L73
+	cmpb	$DOT_CHR,%al
+	je L73
+	cmpb	$QUOTE_CHR,%al
+	je L73
+	cmpb	$STR_SEPARATER,%al
+	jne	L72
+L73:	movb	1(%edi),%dl
+	popl %ecx			/ダミーのpop
+	jmp	cgn3
+L72:
+rc3:	cmpb	$0,(%edi)
+	je L74
+	inc	%edi
+	jmp	rc3
+
+L74:	addw	$2,%edi
+	cmpb	$0,(%edi)
+	popl bufferpointer
+	jne	rc2
+	jmp	CHAR_ERR2
+
+/--------------------------------------
+/	＜数値アトム読み込み＞
+/
+/	バッファから文字を読み込み，
+/	アトム*read-base*の値にて指定された
+/	基数で数値として取り込む
+/	基数の範囲は２から３６まで
+/--------------------------------------
+	ALIGN
+	public	read_number
+read_number:				/数値範囲は 16ビット
+	!read_read_base		/%cl:基数
+read_number2:
+	push	bufferpointer		/バッファ読み出し位置保存
+	 TAKE_CHAR
+	 movb	%al,%dl
+	 xor	%esi,%esi		/%esi:数値の初期化
+	 cmp	$PLUS_CHR,%dl 	/一文字目が"+"か？
+	 jne	L81
+	 NEXT_CHAR
+	 TAKE_CHAR
+	 !check_radix		/二文字目が数値か？
+	 cmpb	$1,%ch 			/%ch:フラグ
+	 jne	L81
+	pop	bufferpointer		/数値の範囲を越えた文字が
+	jmp	read_symbolatom		/あったらシンボルとして読み直し
+
+L81:	 cmpb	$MINUS_CHR,%dl 	/"-"か？
+	 jne	L83
+	 NEXT_CHAR
+	 TAKE_CHAR
+	 !check_radix
+	 cmp	$1,%ch 			/ch:フラグ
+	 jne	L84
+	pop	bufferpointer		/整数値として不適当な文字が
+	jmp	read_symbolatom		/あったら浮動小数として読み直し
+
+L84:	 !read_number3
+	 neg	%esi			/符号を反転
+	 jmp	rn4
+
+L83:	 !read_number3
+rn4:	 pop	%ecx			/保存してあったポインタを捨てる
+	 movl %esi,%eax
+	 andl $LOW3MASK,%eax		/下位３バイトを有効にする
+	 xorl $NUMBERTAG,%eax
+	ret;
+
+read_number3:
+	 TAKE_CHAR
+	 orb	%al,%al
+	 je L86
+	 cmpb	$RET_CHR,%al
+	 je L86
+	 cmpb	$LF_CHR,%al
+	 je L86
+	 cmpb	$HT_CHR,%al
+	 je L86
+	 cmpb	$SPC_CHR,%al
+	 je L86
+	 cmpb	$LPAR_CHR,%al
+	 je L86
+	 cmpb	$RPAR_CHR,%al
+	 je L86
+	 cmpb	$QUOTE_CHR,%al
+	 je L86
+	 cmpb	$STR_SEPARATER,%al
+	 je L86
+	 cmpb	$DOT_CHR,%al
+	 je read_float
+	 !check_radix		/dh:数値 ch:フラグ
+	 cmpb	$1,%ch
+	 jne	L87
+	pop	%ecx			/???
+	pop	bufferpointer		/整数値として不適当な文字が
+	jmp	read_symbolatom		/あったら浮動小数として読み直し
+
+L87:	movb	%cl,%dl
+	movl $0,%ecx
+	movl $0,%ebx
+	movb	%dh,%bl 		/bl: 一桁数値
+	movb	%dl,%cl 		/cl: 基数
+	pushl %eax
+	 movl %esi,%eax
+	 mul %ecx
+	 movl %eax,%esi
+	popl %eax
+	add	%ebx,%esi
+	NEXT_CHAR
+	jmp	read_number3
+L86:	ret;
+
+read_float:
+	POP3;				/戻り先を捨てる
+	popl bufferpointer;		/バッファポインタ復帰
+	pushl bufferpointer;		/バッファポインタ待避
+
+	<;
+	pushl $ftemp			/読み込み終了時ポインタ格納位置
+	%eax=bufferpointer;		/数値列開始位置
+	%eax+=$buffer;
+	PUSH1; !_strtod;
+	%esp+=$-8; fstpl (%esp);
+	POP1; POP4;			/%edx:%eax が浮動小数点数
+	>;
+
+	%ecx=ftemp;		/終了位置
+	%al=(%ecx);		/終了位置の文字
+	orb %al,%al; je got_float;
+	?b($HT_CHR,%al); je got_float;
+	?b($SPC_CHR,%al); je got_float;
+	?b($RET_CHR,%al); je got_float;
+	?b($LF_CHR,%al); je got_float;
+	?b($LPAR_CHR,%al); je got_float;
+	?b($RPAR_CHR,%al); je got_float;
+	?b($QUOTE_CHR,%al); je got_float;
+	?b($STR_SEPARATER,%al); je got_float;
+	popl bufferpointer;
+	jmp read_symbolatom;
+
+	public	SETFLOANUM
+got_float:
+	%ecx-=$buffer; bufferpointer=%ecx;
+	POP3;				/保存してあったバッファを捨てる
+SETFLOANUM:
+	%ecx=floanumtop;		/数値を数値領域に移す
+	PUSH3;
+	 (%ecx)=%eax; 4(%ecx)=%edx;
+	 %ecx+=$8; ?l(floanumend,%ecx); jb sfg2;
+sfg1:	POP1; xorl $FLOATTAG,%eax;
+	SPUSH1;
+	 !floanum_gbc
+	SPOP1; ret;
+
+sfg2:	 movl %ecx,floanumtop		/数値領域の更新
+sfg3:	POP1; xorl $FLOATTAG,%eax
+	ret;
+
+ftemp:	dd	0
+
+/--------------------------------------
+/	読み込み時の基数を%clに取り出す
+/--------------------------------------
+	ALIGN
+read_read_base:
+	movl readbaseadr,%edi
+	movl VALUE(%edi),%ecx
+	andl $UNMASK,%ecx		/cl:基数
+	cmpl $MAXBASE,%ecx
+	ja	L89
+	cmpl $2,%ecx
+	jnb	L88
+L89:	movl $10,%ecx
+	xorl $NUMBERTAG,%ecx
+	movl %ecx,VALUE(%edi)
+	jmp	READ_BASE_ERR
+
+L88:	ret;
+
+/--------------------------------------
+/	%alが基数%clの範囲にあるかチェック
+/	数字として正しければ ch==0,
+/	dh==数値 として返す
+/--------------------------------------
+	ALIGN
+	public	check_radix
+check_radix:
+	?b($0x3a,%al); jnl L90; 	/"9"+1
+	movb	%al,%dh
+	sub	$0x30,%dh		/"0"
+	?b(%cl,%dh); jnb L90;
+	jmp L91;
+
+L90:	?b($0x60,%al); jng L92;	 	/"a"-1 小文字をさきに調べた方が
+	movb	%al,%dh			/簡単にできる
+	sub	$0x57,%dh		/"a"-10
+	?b(%cl,%dh); jnb L92;
+	jmp L91
+
+L92:	?b($0x40,%al); jng L95;	 	/"A"-1
+	mov	%al,%dh
+	sub	$0x37,%dh		/"A"-10
+	cmp	%cl,%dh
+	jnb	L95
+L91:	mov	$0,%ch			/基数の範囲内にないとき
+	ret;
+
+L95:	movb	$1,%ch			/基数の範囲内にあったとき
+	ret;
+
+/--------------------------------------
+/	＜１行入力＞
+/--------------------------------------
+get_one_line:
+	%eax=infile;			/入力デバイスの取得
+	?l($CON,%eax); jne get_line_from_file;
+					/以下はコンソール入力の場合
+	pusha;				/標準入力ならプロンプトを表示する
+	 SET1(parencounteradr);
+	 SET1(VALUE(%eax));		/paren-counterの値を見て，
+	 NILP; je L133;			/括弧カウンタを表示
+	 pushl outfile;
+	  outfile=$CRT;			/画面に表示する
+	  %dl=$0x3c; PRCHR;		/"<"
+	  SET1(parencounter); !print_number;
+	  %dl=$0x3e; PRCHR;		/">"
+	 popl outfile;
+L133:	 SET1(promptadr);		/プロンプトが設定されていれば，
+	 SET1(VALUE(%eax));		/プロンプトを表示
+	 NILP; je L134;
+	 pushl outfile;
+	  %ebx=$NUMBERTAG+CRT; !l_prin1; /どのタイプのプリントにするか！？
+	 popl outfile;
+L134:	popa;
+	SET1(console_mode_adr); SET1(VALUE(%eax));
+	NILP; jne con_as_key;
+con_as_file:				/こちらはフィルタ型入力で活用できる！
+	%ebx=$CON;			/ファイル（コンソール）
+	%edx=$buffer;			/バッファ開始位置
+	%ecx=$BUFSIZE;			/バッファサイズの指定
+	%ah=$0x3f; int DOS;		/コンソール入力
+					/%eax:文字入力数
+geof:	xorl %ebx,%ebx;			/%ebx:バッファのポインタ
+	bufferpointer=%ebx;
+	ret;
+
+con_as_key:				/ヒストリ活用可能な入力
+	%edx=$buffer;			/バッファ開始位置
+	movb $0xff,buffer;		/文字入力数
+	%ah=$0x0a; int DOS;		/コンソール入力
+	PRLF;				/改行
+	bufferpointer=$2;		/バッファの初めの部分は入力文字数
+	ret;
+
+get_line_from_file:
+	<;
+	%eax=infile; UNMASK1; PUSH1;	/ファイル
+	pushl $BUFSIZE;			/バッファサイズの指定
+	pushl $buffer;			/バッファ開始位置
+	!_fgets;			/１行読み込み
+	pusha;
+	 SET2(inputechoadr);		/読込文字の表示を行うか
+	 SET2(VALUE(%ebx));
+	 NILP2; je glff;
+	 PRMSG $buffer;			/読込文字の表示
+glff:	popa;
+	>; jmp geof;
+
+/--------------------------------------
+/	＜空白読み飛ばし＞
+/
+/	空白でない文字が得られるまで
+/	バッファから読み込む
+/--------------------------------------
+skip_space:
+	TAKE_CHAR;
+	?b($SPC_CHR,%al); je L78;
+	?b($HT_CHR,%al); je L78;
+	?b($PAGE_CHR,%al); jne L77;
+L78:	NEXT_CHAR; jmp skip_space;
+
+L77:	orb %al,%al; je L79;
+	?b($RET_CHR,%al); je L79;
+	?b($LF_CHR,%al); je L79;
+	?b($REM_CHR,%al); je L79;
+	?b($EOF_CHR,%al); je L80;
+	?b($SHARP_CHR,%al); je remark;
+	ret;
+
+L79:	!get_one_line;			/一行入力
+	orl %eax,%eax; jne skip_space;
+L80:	%eax=$EOFTAG; xorl %ebx,%ebx; ret;
+
+/--------------------------------------
+/	＜注釈＞
+/--------------------------------------
+remark:	NEXT_CHAR; TAKE_CHAR;
+	incl remarks;
+	?b($0x7c,%al); jne remark2;	/"|"	readして、すぐ捨てれば良い
+	!remark0;
+remark2:
+	decl remarks;
+	BACK_CHAR; TAKE_CHAR;
+	ret;
+
+E:	asz	"% "
+
+remark0:
+	PRMSG $E
+	!skip_space;
+	?b($0x7c,%al); jne remark2;	/"|"
+	
+	ret;
+
+
+	NEXT_CHAR; TAKE_CHAR;
+	?b($ESC_CHR,%al); jne remark3;
+	NEXT_CHAR; TAKE_CHAR;
+remark3:
+	?b($SHARP_CHR,%al); je remark;
+	?b($0x7c,%al); je remark4;
+	jmp remark2;
+
+remark4:
+	?b($SHARP_CHR,%al); je remark2;
+	decl remarks;
+	?l($0,remarks); jne remark2;
+	ret;
+
+remarks:	dd	0
+
+/--------------------------------------
+/	＜バッファの初期化＞
+/
+/	BUFFERとnamebufferの内容を
+/	消去し，ポインタを初期化する
+/--------------------------------------
+@clear_buffers:
+	pusha;
+	 %al=$0;			/クリアする内容
+	 cld;				/クリアする方向
+	 %edi=$buffer;			/クリアする場所
+	 %ecx=$BUFSIZE;			/クリアする文字数
+	 rep; stosb;
+	 %edi=$namebuffer;		/クリアする場所
+	 %ecx=$NAMELENGTH;		/クリアする文字数
+	 rep; stosb;
+	 xor %ebx,%ebx; bufferpointer=%ebx; /バッファポインタの初期化
+	popa; ret;
+
+/--------------------------------------
+/	補助サブルーチン
+/--------------------------------------
+__take_char:				/バッファポインタより一文字取り出す
+	PUSH2;
+	 %ebx=bufferpointer; %ebx+=$buffer;
+	 %al=(%ebx); andl $0x000000ff,%eax;
+	POP2; ret;		 	/下位１バイトのみ有効にする
+
+/======================================
+/	エラー表示ルーチン
+/======================================
+READ_FROM_STRING_ERR:
+	ERR(4020)
+
+RPAR_DOT_ERR:
+	ERR(4001)
+
+ILLIGAL_CHAR_ERR:
+	ERR(4002)
+
+SHARP_SIGN_ERR1:
+	ERR(4010)
+
+SHARP_SIGN_ERR2:
+	ERR(4011)
+
+RPAR_AFTER_DOT_ERR:
+	ERR(4003)
+
+DOT_AFTER_LPAR_ERR:
+	ERR(4004)
+
+EOFERR:
+	ERR(4005)
+
+READ_EVAL_ERR:
+	ERR(4009)
+
+ATOM_OUT_ERR:
+	ERR(4012)
+
+@TOO_LONG_STRING_ERR:
+	ERR(4013)
+
+STRING_EOF_ERR:
+	ERR(4014)		/文字が途中で終わっている場合エラー
+
+READ_BASE_ERR:
+	ERR(4015)
+
+BUFFER_ERR:
+	ERR(4016)
+
+CHAR_ERR1:
+	ERR(4006)
+
+CHAR_ERR2:
+	ERR(4007)
+
+ATMARK_ERR:
+	ERR(4050)
+
+BQEV_ERR:
+	ERR(4051)
+
+/======================================
+/	データ領域
+/======================================
+CHARACTERTABLE:
+	asz	"backspace"		/文字型の特殊名
+	db	BACKSPC_CHR
+	asz	"bell"
+	db	BELL_CHR
+	asz	"dosescape"
+	db	DOSESC_CHR
+	asz	"escape"
+	db	ESC_CHR
+	asz	"linefeed"
+	db	LF_CHR
+	asz	"newline"
+	db	LF_CHR
+	asz	"page"
+	db	PAGE_CHR
+	asz	"return"
+	db	RET_CHR
+	asz	"rubout"
+	db	BACKSPC_CHR
+	asz	"space"
+	db	SPC_CHR
+	asz	"tab"
+	db	HT_CHR
+	db	0,0
+
+/======================================
+/	変数領域
+/======================================
+	.data				/恐らくはasのバグのために２度必要
+	.data
+
+@infile:	dd	0
+@bufferpointer:	dd	0
+parencounter:	dd	0
+one_char_buffer:	dd	0
+@buffer:	ds	BUFSIZE
+@namebuffer:	ds	NAMELENGTH
+@cachepointer:	dd	0		/この領域の配置には注意が必要 文字型の読み込みに支障が出る
+cache:		ds	BUFSIZE		/可能性がある
+@buffend:	dd	0		/ここから後方にBUFSIZE*2+NAMELENGTH+20バイト待避する
+
+
+@hashtbl:	ds	HASHSIZE	/HASHSIZE*4 必要
+		ds	HASHSIZE
+		ds	HASHSIZE
+		ds	HASHSIZE
+

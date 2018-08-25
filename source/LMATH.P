@@ -1,0 +1,2683 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１２章「数」に対応
+/======================================
+
+	.file		"lmath.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＺＥＲＯＰ＞
+/	CLtL2	S12-p.255
+/--------------------------------------
+@l_zerop:
+	FIXNUMP; jne zerop2;
+	?l($NUMBERTAG,%eax); jne SETNIL;
+	jmp SETT;
+
+zerop2:	FLOANUMP; jne ZEROP_ERR;
+	UNMASK1; !fsign
+	?l($0,%eax); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＮＡＴＮＵＭＰ＞
+/--------------------------------------
+@l_natnump:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jge SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＰＬＵＳＰ＞
+/	CLtL2	S12-p.255
+/--------------------------------------
+	public	c_plusp
+@l_plusp:
+	FLOANUMP; je plusp2
+	FIXNUMPE;
+c_plusp:
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jg SETT;
+	jmp SETNIL;
+
+plusp2:	UNMASK1; !fsign
+	?l($1,%eax); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＭＩＮＵＳＰ＞
+/	CLtL2	S12-p.255
+/--------------------------------------
+@l_minusp:
+	FLOANUMP; je minusp2;
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jl SETT;
+	jmp SETNIL;
+
+minusp2:
+	UNMASK1; !fsign;
+	?l($-1,%eax); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＯＤＤＰ＞
+/	CLtL2	S12-p.255
+/--------------------------------------
+@l_oddp:
+	FIXNUMPE;
+	andb $1,%al
+	?b($1,%al); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＥＶＥＮＰ＞
+/	CLtL2	S12-p.255
+/--------------------------------------
+@l_evenp:
+	FIXNUMPE;
+	andb $1,%al
+	?b($1,%al); jne SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜＝＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_meq:	NILP; jne L1;
+	ret;
+
+L1:	PUSH1;
+	 CAR; FLOANUMP; je L2;
+	 FIXNUMP; jne NOT_NUMBER_ERR;
+	 !l_float;
+L2:	 SET2_1;
+	POP1;
+	CDR; NILP; je SETNIL;
+meq:	PUSH1;
+	 CAR; FLOANUMP; je meq2;
+	 FIXNUMP; jne NOT_NUMBER_ERR;
+	 PUSH2; !l_float; POP2;
+meq2:	 PUSH1; !fcompare; POP1;
+	 je L5;
+	POP2;
+	jmp SETNIL;
+
+L5:	 SET2_1;
+	POP1;
+	CDR; NILP; jne meq
+	jmp SETT;
+
+/--------------------------------------
+/	＜ｆ＝＞
+/--------------------------------------
+@l_feq:	FIXNUMP; je fq;
+	FLOANUMP; jne SETNIL;
+fq:	FIXNUMP2; je fq2;
+	FLOANUMP2; jne SETNIL;
+fq2:	!fixs_to_floats;
+	!fcompare; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜！＝＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_mneq:
+	NILP; jne morneq
+	ret;
+
+morneq:	PUSH1;
+	 CDR; NILP; jne L8;
+	POP1;
+	jmp SETT;
+
+L8:	 SET2_1;
+	POP1;
+	PUSH1;
+	 CAR; FIXNUMP; jne L81
+	 PUSH1;
+	  PUSH2; !l_member; POP2;
+	  NILP;
+	 POP1;
+	 jne L812;
+	 PUSH2; !l_float; POP2;
+L81:	 FLOANUMP; jne COMPARE_ERR;
+	 !l_member;
+	 NILP; je L10;
+L812:	POP2;
+	jmp SETNIL;
+
+L10:	POP1;
+	CDR; jmp morneq
+
+/--------------------------------------
+/	＜＜＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_less:
+	NILP; jne L11
+	ret;				/引数なしのときnil
+
+L11:	PUSH1;
+	 CAR; !fix2float; SET2_1;	/bx:初めに比較される数値
+	POP1;
+	CDR; NILP; jne lesp;		/引数ひとつのときnil
+	ret;
+
+lesp:	PUSH1;
+	 CAR;				/次に比較する数値
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; !fcompare; POP1;
+	 jb L15;
+	POP1;
+	jmp SETNIL;
+
+L15:	 SET2_1;			/次に比較される数値
+	POP1;
+	CDR; NILP; jne lesp;		/リストが終わったか？
+	jmp SETT;
+
+/--------------------------------------
+/	＜＞＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_more:
+	NILP; jne L17
+	ret;
+
+L17:	PUSH1;
+	 CAR; !fix2float; SET2_1;
+	POP1;
+	CDR; NILP; jne mor;
+	ret;
+
+mor:	PUSH1;
+	 CAR;
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; !fcompare; POP1;
+	 ja L21;
+	POP2;
+	jmp SETNIL;
+
+L21:	 SET2_1;
+	POP1;
+	CDR; NILP; jne mor
+	jmp SETT;
+
+/--------------------------------------
+/	＜＜＝＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_lesseq:
+	NILP; jne L23
+	ret;
+
+L23:	PUSH1;
+	 CAR; !fix2float; SET2_1;
+	POP1;
+	CDR; NILP; jne lese
+	ret;
+
+lese:	PUSH1;
+	 CAR;
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; !fcompare; POP1;
+	 ja L27;
+	 SET2_1;
+	POP1;
+	CDR; NILP; jne lese
+	jmp SETT;
+
+L27:	POP2; jmp SETNIL;
+
+/--------------------------------------
+/	＜＞＝＞
+/	CLtL2	S12-p.256
+/--------------------------------------
+@l_moreq:
+	NILP; jne L29
+	ret;
+
+L29:	PUSH1;
+	 CAR; !fix2float; SET2_1;
+	POP1;
+	CDR; NILP; jne moreq;
+	ret;
+
+moreq:	PUSH1;
+	 CAR;
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; !fcompare; POP1;
+	 jae L33;
+	POP2;
+	jmp SETNIL;
+
+L33:	 SET2_1;
+	POP1;
+	CDR; NILP; jne moreq
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＬＥＳＳＰ＞
+/
+/	小さいか（２引数）
+/--------------------------------------
+@l_lessp:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jl SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＧＲＥＡＴＥＲＰ＞
+/
+/	大きいか（２引数）
+/--------------------------------------
+@l_greaterp:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jg SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＮＯＴＬＥＳＳＰ＞
+/
+/	小さくないか（２引数）
+/--------------------------------------
+@l_notlessp:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jge SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＮＯＴＧＲＥＡＴＥＲＰ＞
+/
+/	大きくないか（２引数）
+/--------------------------------------
+@l_notgreaterp:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jle SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＭＡＸ＞
+/	CLtL2	S12-p.257
+/--------------------------------------
+@l_max:	PUSH1;
+	 CAR; !fix2float; SET2_1;
+	POP1;
+ma:	CDR; NILP; jne L54;
+	SET1_2;
+	ret;
+
+L54:	PUSH1;
+	 CAR;
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; PUSH2; !fcompare; POP2; POP1;
+	 ja L56;
+	 SET2_1;
+L56:	POP1;
+	jmp ma;
+
+/--------------------------------------
+/	＜ＭＩＮ＞
+/	CLtL2	S12-p.257
+/--------------------------------------
+@l_min:	PUSH1;
+	 CAR; !fix2float; SET2_1;
+	POP1;
+min:	CDR; NILP; jne L58;
+	SET1_2;
+	ret;
+
+L58:	PUSH1;
+	 CAR;
+	 PUSH2; !fix2float; POP2;
+	 PUSH1; PUSH2; !fcompare; POP2; POP1;
+	 jb L60;
+	 SET2_1;
+L60:	POP1;
+	jmp min;
+
+/--------------------------------------
+/	＜ＬＥＳＳ＞
+/
+/	より小さいものを返す（２引数）
+/--------------------------------------
+@l_less2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jl SETNUM;
+	SET1_2;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＧＲＥＡＴＥＲ＞
+/
+/	より大きいものを返す（２引数）
+/--------------------------------------
+@l_greater2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l(%ebx,%eax); jg SETNUM;
+	SET1_2;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜＋＞
+/	CLtL2	S12-p.258
+/--------------------------------------
+@l_plus:
+	NILP; je SETNUM0;		/引数がないときは零
+	SET2($NUMBERTAG);
+pl:	PUSH1;
+	 CAR; !l_plus_sub; SET2_1;
+	POP1;
+	CDR; NILP; jne pl
+	SET1_2;
+	ret;
+
+l_plus_sub:
+	FIXNUMP; je lps2;
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	jmp lps4;
+
+lps2:	FIXNUMP2; jne lps3;		/双方とも整数
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	%eax+=%ebx; jmp SETNUM;
+
+lps3:	FLOANUMP2; jne NOT_NUMBER_ERR;	/第１：整数　第２：浮動小数点数
+	!l_float; jmp l_fplus;
+
+lps4:	FIXNUMP2; jne lps5;		/第１：浮動小数点数　第２：整数
+	PUSH1;
+	 SET1_2; !l_float;
+	POP2; jmp l_fplus;
+
+lps5:	FLOANUMP2; jne NOT_NUMBER_ERR;	/双方とも浮動小数点数
+	jmp l_fplus;
+
+/--------------------------------------
+/	＜ＡＤＤ＞
+/
+/	整数を足し合わせる（２引数）
+/--------------------------------------
+@l_add:	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	%eax+=%ebx; jmp SETNUM;
+
+/--------------------------------------
+/	＜Ｆ＋＞
+/
+/　浮動小数点数を足し合わせる（２引数）
+/--------------------------------------
+@l_fplus:
+	FLOANUMP12;
+	UNMASK1; UNMASK2;
+	fldl (%eax);
+	faddl (%ebx);
+	subl $8,%esp
+	fstpl (%esp);
+	popl %eax;
+	popl %edx;
+	jmp SETFLOANUM
+
+/--------------------------------------
+/	＜−＞
+/	CLtL2	S12-p.258
+/--------------------------------------
+@l_minus:
+	NILP; je SETNUM0;			/引数がないときは零を返す
+	PUSH1;
+	 CAR; SET3_1;
+	POP1;
+	CDR; NILP; jne mi;
+	SET1_3;
+	jmp l_neg;
+
+mi:	PUSH1;
+	 CAR; SET2_1; SET1_3; !l_minus_sub; SET3_1;
+	POP1;
+	CDR; NILP; jne mi;
+	SET1_3;
+	ret;
+
+@l_minus_sub:
+	FIXNUMP; je lms2;
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	jmp lms4;
+
+lms2:	FIXNUMP2; jne lms3;		/双方とも整数
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	%eax-=%ebx; jmp SETNUM;
+
+lms3:	FLOANUMP2; jne NOT_NUMBER_ERR;	/第１：整数　第２：浮動小数点数
+	!l_float; jmp l_fminus;
+
+lms4:	FIXNUMP2; jne lms5;		/第１：浮動小数点数　第２：整数
+	PUSH1;
+	 SET1_2; !l_float; SET2_1;
+	POP1; jmp l_fminus
+
+lms5:	FLOANUMP2; jne NOT_NUMBER_ERR;	/双方とも浮動小数点数
+	jmp l_fminus;
+
+/--------------------------------------
+/	＜ＳＵＢ＞
+/
+/	引数の引算をする（２引数）
+/--------------------------------------
+@l_diff:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	%eax-=%ebx; jmp SETNUM;
+
+/--------------------------------------
+/	＜Ｆー＞
+/
+/　浮動小数点数の引算をする（２引数）
+/--------------------------------------
+@l_fminus:
+	FLOANUMP12;
+	UNMASK1; UNMASK2;
+	fldl (%eax);
+	fsubl (%ebx);
+	subl $8,%esp;
+	fstpl (%esp);
+	popl %eax;
+	popl %edx;
+	jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜＊＞
+/	CLtL2	S12-p.258
+/--------------------------------------
+@l_mul:	NILP; je SETNUM1;		/引数がないときは１
+	SET2($NUMBERTAG+1);
+mul:	PUSH1;
+	 CAR; !l_mul_sub; SET2_1;
+	POP1;
+	CDR; NILP; jne mul;
+	SET1_2;
+	ret;
+
+l_mul_sub:
+	FIXNUMP; je lmls2;
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	jmp lmls4;
+
+lmls2:	FIXNUMP2; jne lmls3;		/双方とも整数
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	imul %ebx; jmp SETNUM;
+
+lmls3:	FLOANUMP2; jne NOT_NUMBER_ERR;	/第１：整数　第２：浮動小数点数
+	!l_float; jmp l_fmul
+
+lmls4:	FIXNUMP2; jne lmls5;		/第１：浮動小数点数　第２：整数
+	PUSH1;
+	 SET1_2; !l_float;
+	POP2; jmp l_fmul
+
+lmls5:	FLOANUMP2; jne NOT_NUMBER_ERR;	/双方とも浮動小数点数
+	jmp l_fmul;
+
+/--------------------------------------
+/	＜ＭＵＬ＞
+/
+/	整数を掛け合わせる（２引数）
+/--------------------------------------
+@l_mul2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	imul %ebx; jmp SETNUM;
+
+/--------------------------------------
+/	＜Ｆ＊＞
+/
+/　浮動小数点数を掛け合わせる（２引数）
+/--------------------------------------
+@l_fmul:
+	FLOANUMP12;
+	UNMASK1; UNMASK2;
+	fldl (%eax);
+	fmull (%ebx);
+	subl $8,%esp;
+	fstpl (%esp);
+	popl %eax;
+	popl %edx;
+	jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜／＞
+/	CLtL2	S12-p.258
+/--------------------------------------
+@l_div:	NILP; je SETNUM1;
+	PUSH1;
+	 CAR; SET3_1;
+	POP1;
+	CDR; NILP; jne dv;
+	SET1($NUMBERTAG+1);		/引数が１つの場合は逆数を返す
+	SET2_3;
+	jmp l_div_sub;
+
+dv:	PUSH1;
+	 CAR; SET2_1; SET1_3; !l_div_sub; SET3_1;
+	POP1;
+	CDR; NILP; jne dv;
+	SET1_3;
+	ret;
+
+@l_div_sub:
+	FIXNUMP; je lds2;
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	jmp lds4;
+
+lds2:	FIXNUMP2; jne lds3;		/双方とも整数
+	PUSH1; PUSH2;
+	  !l_div2;
+	  ?l($0,%edx); jne lds22;	/綺麗に割り切れなければ、浮動小数点数化
+	POP3; POP3;
+	ret;
+
+lds22:	 POP2;
+	POP1;
+	!l_float; jmp lds42;
+
+lds3:	FLOANUMP2; jne NOT_NUMBER_ERR;	/第１：整数　第２：浮動小数点数
+	!l_float; jmp l_fdiv;
+
+lds4:	FIXNUMP2; jne lds5;		/第１：浮動小数点数　第２：整数
+lds42:	PUSH1;
+	 SET1_2; !l_float; SET2_1;
+	POP1;
+	jmp l_fdiv;
+
+lds5:	FLOANUMP2; jne NOT_NUMBER_ERR;	/双方とも浮動小数点数
+	jmp l_fdiv;
+
+/--------------------------------------
+/	＜ＤＩＶ＞
+/
+/	引数の割算をする（２引数）
+/	返り値は商（整数）
+/--------------------------------------
+@l_div2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l($0,%ebx); je DIV_BY_ZERO_ERR;
+idv2:	cdq; idivl %ebx;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜Ｆ／＞
+/
+/　浮動小数点数の割算をする（２引数）
+/--------------------------------------
+@l_fdiv:
+	FLOANUMP12;
+	<;
+	UNMASK1; UNMASK2;
+	fldl (%eax);
+	fdivl (%ebx);
+	subl $8,%esp;
+	fstpl (%esp);
+	popl %eax;
+	popl %edx;
+	addl $36,%esp;		 	/?
+	>; jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜ＩＮＣ，１＋＞
+/
+/	%eaxが整数であれば，
+/	１を足して返す
+/--------------------------------------
+@l_inc:	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	%eax++; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＤＥＣ，１＋＞
+/
+/	%eaxが整数であれば，
+/	１を減らして返す
+/--------------------------------------
+@l_dec:	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	%eax--; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＩＮＣＦ＞
+/
+/	第一引数が数値であれば，
+/	第二引数を足して返す
+/--------------------------------------
+@l_incf:
+	PUSH1; PUSH2;
+	  CAR; SYMBOLP; jne INCF_ERR1;	/シンボルでない
+	  SPUSH1;			/シンボルの待避
+	  UNMASK1; %ebx=VALUE(%eax);
+	  FIXNUMP2; je incf2;
+	  FLOANUMP2; jne INCF_ERR2;	/数値でない
+incf2:	  cmpl $CONST,FUNCTYPE(%eax);
+	  je INCF_ERR3;			/定数の場合
+	  SET3_2;
+	POP2; POP1;
+	CDR; CAR; NILP; jne if2
+	!SETNUM1; jmp if3
+
+if2:	SPUSH3; !l_eval; SPOP3;
+if3:	SET2_3; !l_plus_sub; SET2_1;
+	SPOP1;
+	UNMASK1; VALUE(%eax)=%ebx; SET1_2;
+	ret;
+
+/--------------------------------------
+/	＜ＤＥＣＦ＞
+/
+/	第一引数が数値であれば，
+/	第二引数で減算して返す
+/--------------------------------------
+@l_decf:
+	PUSH1; PUSH2;
+	  CAR; SPUSH1;			/シンボルの待避
+	  SYMBOLP; jne DECF_ERR1;	/シンボルでない
+	  UNMASK1; %ebx=VALUE(%eax);
+	  FIXNUMP2; je decf2;
+	  FLOANUMP2; jne DECF_ERR2;	/数値でない
+decf2:	  cmpl $CONST,FUNCTYPE(%eax);
+	  je DECF_ERR3;		/定数の場合
+	  SET3_2;
+	POP2; POP1;
+	CDR; CAR; NILP; jne df2
+	!SETNUM1; jmp df3
+
+df2:	SPUSH3; !l_eval; SPOP3;
+df3:	SET2_1; SET1_3; !l_minus_sub; SET2_1;
+	SPOP1; UNMASK1; VALUE(%eax)=%ebx;
+	SET1_2;
+	ret;
+
+/--------------------------------------
+/	＜ＧＣＤ＞
+/
+/	引数の最大公約数を返す
+/--------------------------------------
+@l_gcd:	NILP; je SETNUM0;			/引数がないときは０
+	PUSH1;
+	 CAR; FIXNUMPE;
+	 UNMASK1; NUMEXTEND; SET2_1;
+	POP1;
+	CDR; NILP; jne gc;
+L89:	?l($0,%ebx); jnl L90;
+	negl %ebx;
+L90:	SET1_2; jmp SETNUM;
+
+gc:	PUSH1;
+	 CAR;  FIXNUMPE;
+	 UNMASK1; NUMEXTEND;
+	 !c_gcd; SET2_1;
+	POP1;
+	CDR; NILP; jne gc;
+	jmp L89;
+
+c_gcd:	testl %ebx,%ebx; je GD5
+GD4:	cltd; idivl %ebx;
+	SET1_2; SET2_4;
+	testl %ebx,%ebx; jne GD4;
+GD5:	ret;
+
+/--------------------------------------
+/	＜ＬＣＭ＞
+/
+/	引数の最小公約数を返す
+/--------------------------------------
+@l_lcm:	NILP; je SETNUM1;			/引数がないときは１
+	PUSH1;
+	 CAR; FIXNUMPE;
+	 UNMASK1; NUMEXTEND; SET2_1;
+	POP1;
+	CDR; NILP; jne lc
+M89:	?l($0,%ebx); jnl M90;
+	negl %ebx;
+M90:	SET1_2; jmp SETNUM;
+
+lc:	PUSH1;
+	 CAR; FIXNUMPE;
+	 UNMASK1; NUMEXTEND;
+	 !c_lcm; SET2_1;
+	POP1;
+	CDR; NILP; jne lc;
+	jmp M89;
+
+c_lcm:	PUSH1; PUSH2;
+	 imull %ebx; SET3_1;
+	POP2; POP1;
+	!c_gcd;
+	SET2_1; SET1_3;
+	cdq; idivl %ebx;
+	ret;
+
+/--------------------------------------
+/	＜ＥＸＰ＞
+/	CtL2 S12-p262
+/--------------------------------------
+@l_exp:	FIXNUMP; jne expn2;
+	!l_float;
+expn2:	FLOANUMP; jne EXP_ERR;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!check_fpu
+	jne expn2nf
+	!_exp
+	jmp expn3
+expn2nf:
+	!_lexp
+expn3:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_exp:	fldl 4(%esp)
+	fldl2e
+	fmulp
+	jmp Lpow2
+
+_pow2:	fldl 4(%esp)
+Lpow2:	fstcww	LCW1
+	fstcww	LCW2
+	fwait
+	andw	$0xf3ff,LCW2
+	orw	$0x0400,LCW2
+	fldcww	LCW2
+	fldl %st(0)
+	frndint
+	fldcww	LCW1
+	fxch	%st(1)
+	fsub %st(1),%st
+	f2xm1
+	faddl DBL1
+	fscale
+	fstp %st(1)
+	ret;
+
+_pow10:	fldl 4(%esp)
+	fldl2t
+	fmulp
+	jmp Lpow2
+
+_pow:	fldl 4(%esp)
+	ftst
+	fnstsww %ax
+	sahf
+	je zero1
+	fldl 12(%esp)
+	ftst
+	fnstsww %ax
+	sahf
+	je zero2
+	fxch	%st(1)
+	fyl2x
+	jmp Lpow2
+
+zero1:	fstpl 4(%esp)
+	fldzl
+	ret;
+
+zero2:	fstpl 4(%esp)
+	fstpl 4(%esp)
+	fld1l
+	ret;
+
+_lexp:	pushl %ebp
+	movl %esp,%ebp
+	subl $40,%esp
+	pushl %ebx
+	movl 8(%ebp),%ecx
+	movl 12(%ebp),%ebx
+	movl %ecx,-8(%ebp)
+	movl %ebx,-4(%ebp)
+	pushl %ebx
+	pushl %ecx
+	fldl (%esp)	
+	addl $8,%esp
+	fdivl LOG2
+	fstpl -32(%ebp)
+	fldl -8(%ebp)
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	jb LE11
+	movl $0,%eax
+	movl $1071644672,%edx
+	jmp LE12
+
+LE11:	movl $0,%eax
+	movl $-1075838976,%edx
+LE12:	pushl %edx
+	pushl %eax
+	fldl (%esp)	
+	addl $8,%esp
+	faddl -32(%ebp)
+	fstpl -40(%ebp)
+	pushl -36(%ebp)
+	pushl -40(%ebp)
+	!___fixdfsi
+	addl $8,%esp
+	movl %eax,%edx
+	pushl %edx
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -40(%ebp)
+	fldl -40(%ebp)
+	fmull LOG2
+	fstpl -40(%ebp)
+	fldl -8(%ebp)
+	fsubl -40(%ebp)
+	fstl -8(%ebp)
+	fmull -8(%ebp)
+	fstl -16(%ebp)
+	fdivl LEC1
+	fstpl -24(%ebp)
+	movl $18,%eax
+LE16:	pushl %eax
+	fildl (%esp)
+	addl $4,%esp
+	faddl -24(%ebp)
+	fdivrl -16(%ebp)
+	fstpl -24(%ebp)
+	addl $-4,%eax
+	cmpl $5,%eax
+	jg LE16
+	pushl %edx
+	fldl DBL2
+	faddl -24(%ebp)
+	fstl -40(%ebp)
+	faddl -8(%ebp)
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	fldl -40(%ebp)
+	fsubl -8(%ebp)
+	fstpl -40(%ebp)
+	pushl %edx
+	pushl %eax
+	fldl (%esp)	
+	addl $8,%esp
+	fdivl -40(%ebp)
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	pushl %edx
+	pushl %eax
+	!_lldexp
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	pushl %edx
+	pushl %eax
+	fldl (%esp)	
+	addl $8,%esp
+	leal -44(%ebp),%esp
+	popl %ebx
+	leave
+	ret;
+
+	ALIGN
+_lldexp:
+	pushl %ebp
+	movl %esp,%ebp
+	subl $16,%esp
+	movl 8(%ebp),%edx
+	movl 12(%ebp),%ecx
+	movl %edx,-8(%ebp)
+	movl %ecx,-4(%ebp)
+	movl 16(%ebp),%eax
+	testl %eax,%eax
+	jl LE2
+	movl $0,-16(%ebp)
+	movl $1073741824,-12(%ebp)
+	jmp LE9
+
+LE2:	movl $0,-16(%ebp)
+	movl $1071644672,-12(%ebp)
+	negl %eax
+	jmp LE9
+
+LE7:	testl $1,%eax
+	je LE6
+	fldl -8(%ebp)
+	fmull -16(%ebp)
+	fstpl -8(%ebp)
+LE6:	fldl -16(%ebp)
+	fmull -16(%ebp)
+	fstpl -16(%ebp)
+	sarl $1,%eax
+LE9:	testl %eax,%eax
+	jne LE7
+	fldl -8(%ebp)
+	leave
+	ret;
+
+/--------------------------------------
+/	＜ＥＸＰＴ＞
+/	CtL2 S12-p262
+/--------------------------------------
+@l_expt:
+	FIXNUMP; jne expt2;
+	!l_float;
+expt2:	FLOANUMP; jne EXP_ERR;
+	FIXNUMP2; jne expt3;
+	PUSH1;
+	 SET1_2; !l_float; SET2_1;
+	POP1;
+expt3:	FLOANUMP2; jne EXP_ERR;
+	PUSH2;
+	 UNMASK1; !loge; 		/log(a)
+	POP2;
+	!l_mul_sub;		 	/x*log(a)
+	jmp l_exp;
+
+/--------------------------------------
+/	＜ＬＯＧ＞
+/	CtL2 S12-p263
+/--------------------------------------
+@l_log:	FIXNUMP; jne log2;
+	!l_float;
+log2:	FLOANUMP; jne LOG_ERR;
+	UNMASK1;
+	PUSH1; !fsign; SET3_1; POP1;
+	?l($0,%ecx); jl LOG_ERR;
+	NILP2; je loge;			/第２引数がなければ自然対数
+	PUSH2; !loge; SET2_1; POP1;
+	PUSH2;
+	 FIXNUMP; jne log3;
+	 !l_float;
+log3:	 FLOANUMP; jne LOG_ERR;
+	 UNMASK1; !loge; SET2_1;
+	POP1;
+	jmp l_div_sub;
+
+loge:	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+
+	!check_fpu
+	jne loge2
+	!_log
+	jmp loge3
+
+loge2:	!_llog_cf
+loge3:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_log:	fldln2
+	fldl 4(%esp)
+	fyl2x
+	ret;
+
+_llog_cf:
+	pushl %ebp
+	movl %esp,%ebp
+	subl $76,%esp
+	pushl %ebx
+	movl 8(%ebp),%ecx
+	movl 12(%ebp),%ebx
+	movl %ecx,-12(%ebp)
+	movl %ebx,-8(%ebp)
+	leal -4(%ebp),%eax
+	pushl %eax
+	pushl %ebx
+	pushl %ecx
+	fldl (%esp)	
+	addl $8,%esp
+	fdivl SQR2
+	fstpl -76(%ebp)
+	pushl -72(%ebp)
+	pushl -76(%ebp)
+	!_frexp
+	fstp %st(0)
+	pushl -4(%ebp)
+	pushl $1072693248
+	pushl $0
+	!_ldexp
+	fstpl -76(%ebp)
+	fldl -12(%ebp)
+	fdivl -76(%ebp)
+	fstl -12(%ebp)
+	fsubl DBL1
+	fstpl -12(%ebp)
+	movl $0,-20(%ebp)
+	movl $0,-16(%ebp)
+	movl $9,%edx
+LOG5:	pushl %edx
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -76(%ebp)
+	fldl -76(%ebp)
+	fmull -12(%ebp)
+	fstpl -76(%ebp)
+	leal 1(,%edx,2),%eax
+	pushl %eax
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -28(%ebp)
+	fldl -28(%ebp)
+	faddl -20(%ebp)
+	fstpl -36(%ebp)
+	fldl -76(%ebp)
+	fdivl -36(%ebp)
+	fstpl -44(%ebp)
+	fldl DBL2
+	faddl -44(%ebp)
+	fstpl -52(%ebp)
+	fldl -76(%ebp)
+	fdivl -52(%ebp)
+	fstpl -20(%ebp)
+	decl %edx
+	testl %edx,%edx
+	jg LOG5
+	fildl -4(%ebp)
+	fstpl -76(%ebp)
+	fldl -76(%ebp)
+	fmull LOG2
+	fstpl -76(%ebp)
+	fldl DBL1
+	faddl -20(%ebp)
+	fstpl -60(%ebp)
+	fldl -12(%ebp)
+	fdivl -60(%ebp)
+	fstpl -68(%ebp)
+	fldl -76(%ebp)
+	faddl -68(%ebp)
+	leal -80(%ebp),%esp
+	popl %ebx
+	leave
+	ret;
+
+_frexp:	pushl %ebp
+	movl %esp,%ebp
+	subl $16,%esp
+	pushl %esi
+	pushl %ebx
+	movl 8(%ebp),%ebx
+	movl 12(%ebp),%esi
+	movl %ebx,-8(%ebp)
+	movl %esi,-4(%ebp)
+	movl $1,%ecx
+	xorl %edx,%edx
+	fldl -8(%ebp)
+	fldl ZERO
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LOG7
+	movl $-1,%ecx
+	fldl -8(%ebp)
+	fchs
+	fstpl -8(%ebp)
+LOG7:	fldl DBL1
+	fldl -8(%ebp)
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LOG15
+LOG10:	incl %edx
+	fldl -8(%ebp)
+	fdivl DBL2
+	fstpl -8(%ebp)
+	fldl DBL1
+	fldl -8(%ebp)
+	fcompp
+	fnstsw	%ax
+	sahf
+	ja LOG10
+LOG15:	fldl -8(%ebp)
+	fldl DBL5
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LOG14
+LOG13:	decl %edx
+	fldl DBL2
+	fmull -8(%ebp)
+	fstpl -8(%ebp)
+	fldl -8(%ebp)
+	fldl DBL5
+	fcompp
+	fnstsw	%ax
+	sahf
+	ja LOG13
+LOG14:	movl 16(%ebp),%ebx
+	movl %edx,(%ebx)
+	pushl %ecx
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -16(%ebp)
+	fldl -16(%ebp)
+	fmull -8(%ebp)
+	leal -24(%ebp),%esp
+	popl %ebx
+	popl %esi
+	leave
+	ret;
+
+/--------------------------------------
+/	＜ＳＱＲＴ＞
+/	CtL2 S12-p264
+/--------------------------------------
+@l_sqrt:
+	FIXNUMP; jne sqrt2;
+	!l_float;
+sqrt2:	FLOANUMP; jne SQRT_ERR;
+	PUSH1;
+	 !l_minusp; NILP;
+	POP1;
+	jne SQRT_ERR;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	fldl (%esp)
+	fsqrt
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜ＩＳＱＲＴ＞
+/
+/	%eaxが正整数であれば，
+/	その平方根を返す
+/--------------------------------------
+@l_isqrt:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;		/負の数エラー
+	?l($0,%eax); jl ISQRT_ERR;
+	<;
+	PUSH1; !SQ0;
+	>;
+	ret;
+
+SQ0:	pushl %ebp
+	movl %esp,%ebp
+	pushl %ebx
+	movl 8(%ebp),%ebx
+	testl %ebx,%ebx
+	jne SQ2
+	xorl %eax,%eax
+	jmp SQ1
+
+SQ2:	movl $1,%eax
+	movl %ebx,%ecx
+	cmpl %eax,%ecx
+	jbe SQ6
+SQ5:	shll $1,%eax
+	shrl $1,%ecx
+	cmpl %eax,%ecx
+	ja SQ5
+SQ6:	movl %eax,%ecx
+	movl %ebx,%eax
+	xorl %edx,%edx
+	divl %ecx
+	leal (%ecx,%eax),%eax
+	shrl $1,%eax
+	cmpl %eax,%ecx
+	ja SQ6
+	movl %ecx,%eax
+SQ1:	leal -4(%ebp),%esp
+	popl %ebx
+	leave
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＣＵＢＲＴ＞
+/--------------------------------------
+@l_cubrt:
+	FIXNUMP; jne cubrt2
+	!l_float;
+cubrt2:	FLOANUMP; jne SQRT_ERR;
+	PUSH1; !l_minusp; NILP; POP1;
+	jne SQRT_ERR;
+	pushl %ebp
+	movl %esp,%ebp
+	UNMASK1;
+	pushl 4(%eax)
+	pushl (%eax)
+	!_cuberoot
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_cuberoot:
+	pushl %ebp
+	movl %esp,%ebp
+	subl $60,%esp
+	pushl %edi
+	pushl %esi
+	pushl %ebx
+	movl 8(%ebp),%esi
+	movl 12(%ebp),%edi
+	movl %esi,-52(%ebp)
+	movl %edi,-48(%ebp)
+	fldl -52(%ebp)
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	jne LCBR2
+	movl $0,%esi
+	movl $0,%edi
+	pushl %edi
+	pushl %esi
+	fldl (%esp)	
+	addl $8,%esp
+	jmp LCBR1
+
+LCBR2:	fldl -52(%ebp)
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	jbe LCBR3
+	movl $1,-44(%ebp)
+	jmp LCBR4
+
+LCBR3:	movl $0,-44(%ebp)
+	fldl -52(%ebp)
+	fchs
+	fstpl -52(%ebp)
+
+LCBR4:	fldl DBL1
+	fldl -52(%ebp)
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LCBR5
+	movl -52(%ebp),%edx
+	movl -48(%ebp),%ecx
+	jmp LCBR6
+
+LCBR5:	movl $0,%edx
+	movl $1072693248,%ecx
+LCBR6:	movl %edx,-8(%ebp)
+	movl %ecx,-4(%ebp)
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	fmull -8(%ebp)
+	fstl -60(%ebp)
+	fmull -8(%ebp)
+	fstpl -16(%ebp)
+	fldl -52(%ebp)
+	fsubl -16(%ebp)
+	fstpl -24(%ebp)
+	fldl -60(%ebp)
+	fmull DBL2
+	fstpl -60(%ebp)
+	fldl -52(%ebp)
+	fdivl -8(%ebp)
+	fstpl -32(%ebp)
+	fldl -60(%ebp)
+	faddl -32(%ebp)
+	fstpl -60(%ebp)
+	fldl -24(%ebp)
+	fdivl -60(%ebp)
+	fstpl -40(%ebp)
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	faddl -40(%ebp)
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %edx
+	popl %ecx
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	fldl -8(%ebp)
+	fcompp
+	fnstsw	%ax
+	sahf
+	ja LCBR6
+	cmpl $0,-44(%ebp)
+	je LCBR10
+	fldl -8(%ebp)
+	jmp LCBR1
+
+LCBR10:	fldl -8(%ebp)
+	fchs
+LCBR1:	leal -72(%ebp),%esp
+	popl %ebx
+	popl %esi
+	popl %edi
+	leave
+	ret;
+
+/--------------------------------------
+/	＜ＩＣＵＢＲＴ＞
+/
+/	%eaxが正数値であれば，
+/	その立方根を返す
+/--------------------------------------
+@l_icubrt:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;		/負の数エラー
+	?l($0,%eax); jl ICUBRT_ERR;
+	<; PUSH1; !CU0; >;
+	ret;
+
+CU0:	pushl %ebp
+	movl %esp,%ebp
+	subl $4,%esp
+	pushl %esi
+	pushl %ebx
+	movl 8(%ebp),%ebx
+	testl %ebx,%ebx
+	jne CU2
+	xorl %eax,%eax
+	jmp CU1
+
+CU2:	movl $1,%edx
+	movl %ebx,%ecx
+	cmpl %edx,%ecx
+	jbe CU6
+CU5:	shll $1,%edx
+	shrl $2,%ecx
+	cmpl %edx,%ecx
+	ja CU5
+CU6:	movl %edx,%ecx
+	movl %ecx,%eax
+	imull %ecx,%eax
+	movl %eax,-4(%ebp)
+	movl %ebx,%eax
+	xorl %edx,%edx
+	divl -4(%ebp)
+	leal (%eax,%ecx,2),%eax
+	movl %eax,-4(%ebp)
+	movl $3,%esi
+	xorl %edx,%edx
+	divl %esi
+	movl %eax,-4(%ebp)
+	movl -4(%ebp),%edx
+	cmpl %edx,%ecx
+	ja CU6
+	movl %ecx,%eax
+CU1:	leal -12(%ebp),%esp
+	popl %ebx
+	popl %esi
+	leave
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＡＢＳ＞
+/	S12-p264
+/--------------------------------------
+@l_abs:	FLOANUMP; je l_fabs;
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jg SETNUM;
+	negl %eax; jmp SETNUM;
+
+@l_fabs:
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!_lfabs
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+	public	_lfabs
+_lfabs:	pushl %ebp
+	movl %esp,%ebp
+	movl 8(%ebp),%edx
+	movl 12(%ebp),%ecx
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	jb LT2
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	leave
+	ret;
+
+LT2:	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	fchs
+LT1:	leave
+	ret;
+
+/--------------------------------------
+/	＜ＳＩＧＮＵＭ＞
+/	S12-p265
+/--------------------------------------
+@l_signum:
+	FIXNUMP; jne signum2;
+	?l($NUMBERTAG,%eax); je signum1;
+	ret;
+signum1:
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jg SETNUM1;	/正なら１
+SET_MINUS_ONE:
+	%eax=$-1; jmp SETNUM;		/負なら−１
+
+signum2:
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1; !fsign; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＮＥＧ＞
+/--------------------------------------
+@l_neg:	FIXNUMP; jne neg2;
+	UNMASK1;
+	negl %eax; jmp SETNUM;
+
+neg2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1;
+	pushl 4(%eax);
+	pushl (%eax);
+	fldl (%esp);
+	addl $8,%esp;
+	fchs;
+	addl $-8,%esp;
+	fstpl (%esp);
+	popl %eax;
+	popl %edx;
+	jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜ＳＩＮ＞
+/--------------------------------------
+@l_sin:	FIXNUMP; jne sin2
+	!l_float;
+sin2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!check_fpu
+	jne sin3
+	!_sin
+	jmp sin4
+
+sin3:	!_lsin
+sin4:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_sin:	fldl 4(%esp)
+	fsin
+	fstsw
+	sahf
+	jnp csine
+	fstp %st(0)
+	fldl SINDATA
+csine:	ret;	
+
+_lsin:	pushl %ebp
+	movl %esp,%ebp
+	subl $28,%esp
+	leal -4(%ebp),%eax
+	pushl %eax
+	fldl 8(%ebp)
+	fdivl DBL2
+	fstpl -28(%ebp)
+	pushl -24(%ebp)
+	pushl -28(%ebp)
+	!_ur_tan
+	fstpl -12(%ebp)
+	fldl DBL2
+	fmull -12(%ebp)
+	fstpl -20(%ebp)
+	fldl -12(%ebp)
+	fmull -12(%ebp)
+	faddl DBL1
+	fstpl -28(%ebp)
+	fldl -20(%ebp)
+	fdivl -28(%ebp)
+	fstpl -12(%ebp)
+	movl -4(%ebp),%eax
+	testl %eax,%eax
+	jge LT17
+	incl %eax
+LT17:	andl $-2,%eax
+	movl -4(%ebp),%edx
+	subl %eax,%edx
+	movl %edx,%eax
+	testl %eax,%eax
+	jne LT16
+	fldl -12(%ebp)
+	jmp LT15
+
+LT16:	fldl -12(%ebp)
+	fchs
+LT15:	leave
+	ret;
+
+/--------------------------------------
+/	＜ＣＯＳ＞
+/--------------------------------------
+@l_cos:	FIXNUMP; jne cos2
+	!l_float;
+cos2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!check_fpu
+	jne cos3
+	!_cos
+	jmp cos4
+cos3:	!_lcos
+cos4:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_cos:	fldl 4(%esp)
+	fcos
+	fstsw
+	sahf
+	jnp csine
+	fstp %st(0)
+	fldl SINDATA
+	ret;
+
+_lcos:	pushl %ebp
+	movl %esp,%ebp
+	pushl 12(%ebp)
+	pushl 8(%ebp)
+	!_lfabs
+	fsubrl PI_2;
+	subl $8,%esp
+	fstpl (%esp)
+	!_lsin
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	pushl %edx
+	pushl %eax
+	fldl (%esp)	
+	addl $8,%esp
+	leave
+	ret;
+
+_lcos1:	pushl %ebp
+	movl %esp,%ebp
+	subl $28,%esp
+	leal -4(%ebp),%eax
+	pushl %eax
+	fldl 8(%ebp)
+	fdivl DBL2
+	fstpl -28(%ebp)
+	pushl -24(%ebp)
+	pushl -28(%ebp)
+	!_lfabs
+	addl $8,%esp
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	pushl %edx
+	pushl %eax
+	!_ur_tan
+	fstpl -12(%ebp)
+	fldl -12(%ebp)
+	fmull -12(%ebp)
+	fstpl -12(%ebp)
+	movl -4(%ebp),%eax
+	testl %eax,%eax
+	jge LT21
+	incl %eax
+LT21:	andl $-2,%eax
+	movl -4(%ebp),%ecx
+	subl %eax,%ecx
+	movl %ecx,%eax
+	testl %eax,%eax
+	jne LT20
+	fldl DBL2
+	fmull -12(%ebp)
+	fstpl -28(%ebp)
+	fldl DBL1
+	faddl -12(%ebp)
+	fstpl -20(%ebp)
+	fldl -28(%ebp)
+	fdivl -20(%ebp)
+	jmp LT22
+
+LT20:	fldl DBL1
+	faddl -12(%ebp)
+	fdivrl DBL2
+LT22:	leave
+	ret;
+
+/--------------------------------------
+/	＜ＴＡＮ＞
+/--------------------------------------
+@l_tan:	FIXNUMP; jne tan2
+	!l_float;
+tan2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1;
+	<;
+	pushl 4(%eax)
+	pushl (%eax)
+	!check_fpu; jne tan3
+	!_tan
+	jmp tan4
+
+tan3:	!_ltan
+tan4:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	>; jmp SETFLOANUM;
+
+_tan:	fldl 4(%esp)
+	fptan
+	fstsw
+	fstp %st(0)
+	sahf
+	jnp csine
+	fstp %st(0)
+	fldl SINDATA
+	ret;
+
+_ltan:	pushl %ebp
+	movl %esp,%ebp
+	subl $4,%esp
+	pushl %ebx
+	leal -4(%ebp),%eax
+	pushl %eax
+	pushl 12(%ebp)
+	pushl 8(%ebp)
+	!_ur_tan
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %edx
+	popl %ecx
+	movl -4(%ebp),%eax
+	testl %eax,%eax
+	jge LT13
+	incl %eax
+LT13:	andl $-2,%eax
+	movl -4(%ebp),%ebx
+	subl %eax,%ebx
+	movl %ebx,%eax
+	testl %eax,%eax
+	jne LT12
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	jmp LT11
+
+LT12:	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	je LT11
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	fdivrl DBL_M1
+LT11:	leal -8(%ebp),%esp
+	popl %ebx
+	leave
+	ret;
+
+	ALIGN
+_ur_tan:
+	pushl %ebp
+	movl %esp,%ebp
+	subl $56,%esp
+	pushl %edi
+	pushl %esi
+	pushl %ebx
+	movl 8(%ebp),%edx
+	movl 12(%ebp),%ecx
+	movl %edx,-8(%ebp)
+	movl %ecx,-4(%ebp)
+	movl 16(%ebp),%ebx
+	pushl %ecx
+	pushl %edx
+	fldl (%esp)	
+	addl $8,%esp
+	fdivl PI_2;
+	fstpl -32(%ebp)
+	fldl -8(%ebp)
+	ftst
+	fstp %st(0)
+	fnstsw	%ax
+	sahf
+	jb LT5
+	movl $0,%esi
+	movl $1071644672,%edi
+	jmp LT6
+
+LT5:	movl $0,%esi
+	movl $-1075838976,%edi
+LT6:	pushl %edi
+	pushl %esi
+	fldl (%esp)	
+	addl $8,%esp
+	faddl -32(%ebp)
+	fstpl -56(%ebp)
+	pushl -52(%ebp)
+	pushl -56(%ebp)
+	!___fixdfsi
+	movl %eax,(%ebx)
+	fildl (%ebx)
+	fstpl -56(%ebp)
+	fldl -56(%ebp)
+	fmull PI_2;
+	fstpl -40(%ebp)
+	fldl -8(%ebp)
+	fsubl -40(%ebp)
+	fstpl -48(%ebp)
+	fldl -56(%ebp)
+	fmull LTC2
+	faddl -48(%ebp)
+	fstl -8(%ebp)
+	fmull -8(%ebp)
+	fstpl -24(%ebp)
+	movl $0,-16(%ebp)
+	movl $0,-12(%ebp)
+	movl $19,%eax
+LT10:	pushl %eax
+	fildl (%esp)
+	addl $4,%esp
+	fsubl -16(%ebp)
+	fdivrl -24(%ebp)
+	fstpl -16(%ebp)
+	addl $-2,%eax
+	cmpl $2,%eax
+	jg LT10
+	fldl DBL1
+	fsubl -16(%ebp)
+	fdivrl -8(%ebp)
+	leal -68(%ebp),%esp
+	popl %ebx
+	popl %esi
+	popl %edi
+	leave
+	ret;
+
+/--------------------------------------
+/	＜ＡＳＩＮ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_asin:
+	FIXNUMP; jne asin2
+	!l_float;
+asin2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	!check_fpu; jne _lasin;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!_asin
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_asin:	fldl 4(%esp)
+	fld	%st(0)
+	fmulp
+	fld1
+	fsubp
+	fsqrt
+	fldl 4(%esp)
+	fxch	%st(1)
+	fpatan
+	ret;
+
+_lasin:	PUSH1;
+	 SET2_1;
+	 !l_fmul 		/x^2
+	 SET2_1;
+	 SET1($NUMBERTAG+1)
+	 !l_minus_sub 	/1-x^2
+	 !l_sqrt			/sqrt(1-x^2)
+	 SET2_1;
+	POP1;
+	!l_div_sub 	/x/sqrt(1-x^2)
+	jmp l_atan
+
+/--------------------------------------
+/	＜ＡＣＯＳ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_acos:
+	FIXNUMP; jne acos2
+	!l_float;
+acos2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	!check_fpu; jne _lacos;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!_acos
+	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_acos:	fldl 4(%esp)
+	fld1
+	fsubp %st(0),%st(1)
+	fsqrt
+	fldl 4(%esp)
+	fld1
+	faddp %st(0),%st(1)
+	fsqrt
+	fpatan
+	fld	%st(0)
+	faddp
+	ret;
+
+_lacos:	!l_asin
+	SET2_1;
+	SET1($PI_2)
+	xorl $FLOATTAG,%eax
+	jmp l_minus_sub
+
+/--------------------------------------
+/	＜ＡＴＡＮ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_atan:
+	FIXNUMP; jne atan2
+	!l_float;
+atan2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	UNMASK1;
+	pushl %ebp
+	movl %esp,%ebp
+	pushl 4(%eax)
+	pushl (%eax)
+	!check_fpu; jne atan3
+	!_atan; jmp atan4;
+
+atan3:	!_latan
+atan4:	addl $-8,%esp
+	fstpl (%esp)
+	popl %eax
+	popl %edx
+	leave
+	jmp SETFLOANUM;
+
+_atan:	fldl 4(%esp)
+	fld1
+	fpatan
+	ret;
+
+_latan:	pushl %ebp
+	movl %esp,%ebp
+	subl $40,%esp
+	pushl %esi
+	pushl %ebx
+	movl 8(%ebp),%ebx
+	movl 12(%ebp),%esi
+	movl %ebx,-8(%ebp)
+	movl %esi,-4(%ebp)
+	fldl DBL1
+	fldl -8(%ebp)
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LTN2
+	movl $1,%ecx
+	jmp LTN12
+LTN2:	fldl -8(%ebp)
+	fldl DBL_M1
+	fcompp
+	fnstsw	%ax
+	sahf
+	jbe LTN4
+	movl $-1,%ecx
+LTN12:	fldl DBL1
+	fdivl -8(%ebp)
+	fstpl -8(%ebp)
+	jmp LTN3
+
+LTN4:	xorl %ecx,%ecx
+LTN3:	movl $0,-16(%ebp)
+	movl $0,-12(%ebp)
+	movl $24,%edx
+LTN9:	movl %edx,%eax
+	imull %edx,%eax
+	pushl %eax
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -40(%ebp)
+	fldl -40(%ebp)
+	fmull -8(%ebp)
+	fmull -8(%ebp)
+	fstpl -40(%ebp)
+	leal 1(,%edx,2),%eax
+	pushl %eax
+	fildl (%esp)
+	addl $4,%esp
+	fstpl -24(%ebp)
+	fldl -24(%ebp)
+	faddl -16(%ebp)
+	fstpl -32(%ebp)
+	fldl -40(%ebp)
+	fdivl -32(%ebp)
+	fstpl -16(%ebp)
+	decl %edx
+	testl %edx,%edx
+	jg LTN9
+	testl %ecx,%ecx
+	jle LTN10
+	fldl DBL1
+	faddl -16(%ebp)
+	fdivrl -8(%ebp)
+	fsubrl PI_2;
+	jmp LTN13
+
+LTN10:	testl %ecx,%ecx
+	jge LTN11
+	fldl DBL1
+	faddl -16(%ebp)
+	fdivrl -8(%ebp)
+	fsubrl LTNC3
+	jmp LTN13
+
+LTN11:	fldl DBL1
+	faddl -16(%ebp)
+	fdivrl -8(%ebp)
+LTN13:	leal -48(%ebp),%esp
+	popl %ebx
+	popl %esi
+	leave
+	ret;
+
+/--------------------------------------
+/	＜ＳＩＮＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_sinh:
+	FIXNUMP; jne sinh2
+	!l_float;
+sinh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	!l_exp;		 		/exp(x)
+	PUSH1;
+	 SET2_1; SET1($NUMBERTAG+1);	/exp(-x)
+	 !l_div_sub; SET2_1;
+	POP1;
+	!l_minus_sub; SET2($NUMBERTAG+2); /exp(x)-exp(-x)
+	jmp l_div_sub;		 	/(exp(x)-exp(-x))/2
+
+/--------------------------------------
+/	＜ＣＯＳＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_cosh:
+	FIXNUMP; jne cosh2;
+	!l_float;
+cosh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	!l_exp;		 		/exp(x)
+	PUSH1;
+	 SET2_1; SET1($NUMBERTAG+1);	/exp(-x)
+	 !l_div_sub; SET2_1;
+	POP1;
+	!l_plus_sub; SET2($NUMBERTAG+2); /exp(x)+exp(-x)
+	jmp l_div_sub;		 	/(exp(x)+exp(-x))/2
+
+/--------------------------------------
+/	＜ＴＡＮＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_tanh:
+	FIXNUMP; jne tanh2
+	!l_float;
+tanh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	!l_exp;				/exp(x)
+	PUSH1;
+	 SET2_1; SET1($NUMBERTAG+1);	/exp(-x)
+	 !l_div_sub; SET2_1;
+	POP1;
+	PUSH1; PUSH2;
+	 !l_plus_sub; SET3_1;  		/exp(x)+exp(-x)
+	POP2; POP1;
+	PUSH3;
+	 !l_minus_sub;		 	/exp(x)-exp(-x)
+	POP2;
+	jmp l_div_sub;		 	/(exp(x)-exp(-x))/(exp(x)+exp(-x))
+
+/--------------------------------------
+/	＜ＡＳＩＮＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_asinh:
+	FIXNUMP; jne asinh2
+	!l_float;
+asinh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 SET2_1; !l_mul_sub;		/z^2
+	 SET2($NUMBERTAG+1):
+	 !l_plus_sub;		 	/1+z^2
+	 !l_sqrt;			/sqrt(1+z^2)
+	POP2;
+	!l_plus_sub;			/z+sqrt(1+z^2)
+	UNMASK1; jmp loge 		/log(z+sqrt(1+z^2))
+
+/--------------------------------------
+/	＜ＡＣＯＳＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_acosh:
+	FIXNUMP; jne acosh2
+	!l_float;
+acosh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 SET2($NUMBERTAG+1):
+	 !l_plus_sub; SET3_1;		/z+1
+	POP1;
+	PUSH1; PUSH3;
+	  SET2($NUMBERTAG+1);
+	  !l_minus_sub;			/z-1
+	 POP2;
+	 PUSH2;
+	  !l_div_sub;			/(z-1)/(z+1)
+	  !l_sqrt;			/sqrt((z-1)/(z+1))
+	 POP2;
+	 !l_mul_sub;			/(z+1)*sqrt((z-1)/(z+1))
+	POP2;
+	!l_plus_sub;			/z+(z+1)*sqrt((z-1)/(z+1))
+	UNMASK1; jmp loge;		/log
+
+/--------------------------------------
+/	＜ＡＴＡＮＨ＞
+/	CtL2 S12-p268
+/--------------------------------------
+@l_atanh:
+	FIXNUMP; jne atanh2;
+	!l_float;
+atanh2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 SET2_1; !l_mul_sub; SET2_1;	/x^2
+	 SET1($NUMBERTAG+1);
+	 !l_minus_sub;			/1-x^2
+	 SET2_1; SET1($NUMBERTAG+1);	/1/(1-x^2)
+	 !l_div_sub; !l_sqrt; SET3_1;	/sqrt(1/(1-x^2))
+	POP1;
+	PUSH3
+	 SET2($NUMBERTAG+1);
+	 !l_plus_sub;			/1+x
+	POP2;
+	!l_mul_sub;		 	/(1+x)*(sqrt(1/(1-x^2)))
+	UNMASK1; jmp loge;		/log
+
+/--------------------------------------
+/	＜ＲＡＤＩＡＮ＞
+/--------------------------------------
+@l_radian:
+	FIXNUMP; jne radian2;
+	!l_float;
+radian2:
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	SET2($PI); xorl $FLOATTAG,%ebx;
+	!l_mul_sub;			/x*pi
+	SET2($NUMBERTAG+180);		/180
+	jmp l_div_sub;			/x*pi/180
+
+/--------------------------------------
+/	＜ＲＥＭ＞
+/	CtL2 S12-p310
+/--------------------------------------
+@l_rem:	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l($0,%ebx); je DIV_BY_ZERO_ERR;
+rdv:	PUSH4;
+	 cdq; idivl %ebx; SET1(%edx);
+	POP4; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＦＬＯＡＴ＞
+/--------------------------------------
+@l_float:
+	FLOANUMP; je integer2;
+	FIXNUMP; jne NOT_NUMBER_ERR;
+	<;
+	UNMASK1; NUMEXTEND;
+	itemp=%eax;
+	fildl itemp;
+	subl $8,%esp;
+	fstpl (%esp);
+	!___fixdfsi;
+	POP1; POP4;
+	>; jmp SETFLOANUM;
+
+/--------------------------------------
+/	＜ＩＮＴＥＧＥＲ＞
+/--------------------------------------
+@l_integer:
+	FIXNUMP; jne integer2;
+	ret;
+
+integer2:
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	<;
+	UNMASK1;
+	pushl 4(%eax)
+	pushl (%eax)
+	!___fixdfsi
+	>; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＦＬＯＯＲ＞
+/--------------------------------------
+@l_floor:
+	FIXNUMP; jne floor2
+	ret;
+
+floor2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 UNMASK1; !fsign; SET2_1;
+	POP1;
+	?l($-1,%ebx); jne l_integer;
+	SET2($NUMBERTAG+1); !l_minus_sub;
+	jmp l_integer;
+
+/--------------------------------------
+/	＜ＣＥＩＬＩＮＧ＞
+/--------------------------------------
+@l_ceiling:
+	FIXNUMP; jne ceiling2;
+	ret;
+
+ceiling2:
+	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 UNMASK1; !fsign; SET2_1;
+	POP1;
+	?l($1,%ebx); jne l_integer;
+	SET2($NUMBERTAG+1); !l_plus_sub;
+	jmp l_integer;
+
+/--------------------------------------
+/	＜ＴＲＵＮＣＡＴＥ＞
+/--------------------------------------
+@l_truncate:
+	jmp l_integer
+
+/--------------------------------------
+/	＜ＲＯＵＮＤ＞
+/--------------------------------------
+@l_round:
+	FIXNUMP; jne round2
+	ret;
+
+round2:	FLOANUMP; jne NOT_NUMBER_ERR;
+	PUSH1;
+	 UNMASK1; !fsign; SET3_1;
+	POP1;
+	SET2($HALF); xorl $FLOATTAG,%ebx;
+	?l($1,%ecx); jne round3;
+	!l_plus_sub; jmp l_integer;
+
+round3:	?l($0,%eax); je l_integer;
+	!l_minus_sub; jmp l_integer;
+
+/--------------------------------------
+/	ＬＯＧＩＯＲ	S12-p.314
+/--------------------------------------
+@l_logior:
+	NILP; je SETNUM0;
+L128:	PUSH1;
+	 CAR;  FIXNUMPE; SET2_1;
+	POP1;
+	CDR; NILP; jne logio;
+logend:	SET1_2; jmp SETNUM;
+
+logio:	PUSH1;
+	 CAR; FIXNUMPE; orl %eax,%ebx;
+	POP1;
+	CDR; NILP; jne logio;
+	jmp logend;
+
+/--------------------------------------
+/	ＬＯＧＸＯＲ	S12-p.314
+/--------------------------------------
+@l_logxor:
+	NILP; je SETNUM0;
+	PUSH1;
+	 CAR; FIXNUMPE; SET2_1;
+	POP1;
+	CDR; NILP; je logend;
+logxo:	PUSH1;
+	 CAR; FIXNUMPE; xorl %eax,%ebx;
+	POP1;
+	CDR; NILP; jne logxo;
+	jmp logend;
+
+/--------------------------------------
+/	ＬＯＧＡＮＤ	S12-p.314
+/--------------------------------------
+@l_logand:
+	NILP; je SET_MINUS_ONE;
+	PUSH1;
+	 CAR; FIXNUMPE; SET2_1;
+	POP1;
+	CDR; NILP; je logend;
+logan:	PUSH1;
+	 CAR; FIXNUMPE; andl %eax,%ebx;
+	POP1;
+	CDR; NILP; jne logan;
+	jmp logend;
+
+/--------------------------------------
+/	ＬＯＧＥＱＶ	S12-p.314
+/--------------------------------------
+@l_logeqv:
+	NILP; je SET_MINUS_ONE
+	PUSH1;
+	 CAR; FIXNUMPE; SET2_1;
+	POP1;
+	CDR; NILP; je logend;
+lgeqv:	PUSH1;
+	 CAR; FIXNUMPE; xorl %eax,%ebx; notl %ebx;
+	POP1;
+	CDR; NILP; jne lgeqv;
+	jmp logend;
+
+/--------------------------------------
+/	＜ＬＯＧＮＡＮＤ＞
+/
+/	論理積の否定
+/--------------------------------------
+@l_lognand:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	andl %ebx,%eax; notl %eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＮＯＲ＞
+/
+/	論理和の否定
+/--------------------------------------
+@l_lognor:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	orl %ebx,%eax; notl %eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＡＮＤＣ１＞
+/
+/	第一引数の否定と第二引数の論理積
+/--------------------------------------
+@l_logandc1:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	notl %eax; andl %ebx,%eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＡＮＤＣ２＞
+/
+/	第二引数と第一引数の否定の論理積
+/--------------------------------------
+@l_logandc2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	notl %ebx; andl %ebx,%eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＯＲ１＞
+/
+/	第一引数の否定と第二引数の論理和
+/--------------------------------------
+@l_logorc1:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	notl %eax; orl %ebx,%eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＯＲ２＞
+/
+/	第一引数と第二引数の否定の論理和
+/--------------------------------------
+@l_logorc2:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	notl %ebx; orl %ebx,%eax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＮＯＴ＞
+/
+/	論理否定
+/--------------------------------------
+@l_lognot:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	notl %eax; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＬＯＧＴＥＳＴ＞
+/
+/	第一引数と第二引数の１の位置が
+/	一つでも重なっていればt
+/--------------------------------------
+@l_logtest:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	andl %ebx,%eax;
+	?l($0,%eax); jne SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＬＯＧＢＩＴＰ＞
+/
+/	第一引数の指定する位置の第二引数
+/	が１であれば t
+/--------------------------------------
+@l_logbitp:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+	?l($0,%eax); jnl L166;
+	jmp LOGBITP_ERR;
+
+L166:	SET3_1; SET1($1);
+L167:	orl %ecx,%ecx; je L168;
+	shl $1,%eax; %ecx--;
+	jmp L167;
+
+L168:	andl %ebx,%eax;
+	?l($0,%eax); jne SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＡＳＨ＞
+/
+/	第二引数を第一引数分シフト
+/--------------------------------------
+@l_ash:	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	NUMEXTEND; NUMEXTEND2;
+L173:	?l($0,%ebx); jng L172;
+	je SETNUM;
+	shll $1,%eax; %ebx--;
+	jmp L173;
+
+L172:	?l($0,%ebx); jnl SETNUM;
+	je SETNUM;
+	shrl $1,%eax; %ebx++;
+	jmp L172;
+
+/--------------------------------------
+/	＜ＬＯＧＣＯＵＮＴ＞
+/
+/	ビット数を数える
+/--------------------------------------
+@l_logcount:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	%ebx=$24; xorl %ecx,%ecx;	/２４ビット
+L179:	orl %ebx,%ebx; je L180;
+	shr $1,%eax; jnc L181;
+	%ecx++;
+L181:	%ebx--; jmp L179;
+
+L180:	SET1_3; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＲＡＮＤＯＭ＞
+/
+/	引数を超えない乱数を返す
+/--------------------------------------
+@l_random:
+	FIXNUMPE;
+	UNMASK1; NUMEXTEND;
+	?l($0,%eax); jng RANDOM_ERR;	/負数はエラー
+	PUSH1;				/乱数上限の待避
+	<;		 		/djgccのライブラリを呼び出す
+	!_rand; shll $16,%eax;		/%eax:下位２バイトの乱数 上位２バイトに移す
+	PUSH1;
+	!_rand; SET2_1;			/%eax:下位２バイトの乱数
+	POP1;
+	%ebx+=%eax;			/%ebx:４バイト乱数
+	>;
+	POP1;				/乱数上限の復帰
+	mull %ebx			/%edx:掛け算結果８バイトの上位４バイト
+	SET1_4; jmp SETNUM;
+
+/======================================
+/	汎用サブルーチン
+/======================================
+@fcompare:
+	UNMASK1; UNMASK2;		/浮動小数点数%eax,%ebxを受けて
+	!kill_edge;			/大小関係をフラグで返す
+	fldl (%eax);
+	fldl (%ebx);
+	fcompp;
+	fnstsw %ax;
+	sahf; ret;
+
+kill_edge:				/比較のために浮動小数点数の表現を削る
+	%esi=(%eax);			/（精度が落ちる！？）
+	andl $0xfffffc0,%esi;
+	(%eax)=%esi; %esi=(%ebx);
+	andl $0xfffffc0,%esi
+	(%ebx)=%esi;
+	ret;
+
+fixs_to_floats:
+	!fix2float;
+	PUSH1;
+	 SET1_2; !fix2float; SET2_1;
+	POP1; ret;
+
+fix2float:
+	FLOANUMP; jne f2f2;
+	ret;
+f2f2:
+	FIXNUMP; jne NOT_NUMBER_ERR;
+	jmp l_float;
+
+/--------------------------------------
+/	浮動小数点数%eaxを受けて
+/	%eaxに符号を返す
+/--------------------------------------
+fsign:	%eax=4(%eax);			/符号の部分だけで判断
+	?l($0x80000000,%eax); je LTS0;	/-0.0か？
+	?l($0x0,%eax); je LTS0;		/+0.0か？
+	jl LTS2;
+	%eax=$1; ret;
+
+LTS0:	%eax=$0; ret;
+
+LTS2:	%eax=$-1; ret;
+
+/--------------------------------------
+/	値の設定
+/--------------------------------------
+SETNUM0:
+	SET1($NUMBERTAG); ret;
+
+SETNUM1:
+	SET1($NUMBERTAG+1); ret;
+
+@SETNUM:
+	UNMASK1; xorl $NUMBERTAG,%eax; ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+@NOT_INTEGER_ERR:
+	ERR(10001)
+
+@NOT_FLOANUM_ERR:
+	ERR(10017)
+
+NOT_NUMBER_ERR:
+	ERR(10020)
+
+COMPARE_ERR:
+	ERR(10019)
+
+ZEROP_ERR:
+	ERR(10014)
+
+DIV_BY_ZERO_ERR:
+	ERR(10002)
+
+INCF_ERR1:
+	ERR(10003)
+
+INCF_ERR2:
+	ERR(10004)
+
+INCF_ERR3:
+	ERR(10005)
+
+DECF_ERR1:
+	ERR(10006)
+
+DECF_ERR2:
+	ERR(10007)
+
+DECF_ERR3:
+	ERR(10008)
+
+SQRT_ERR:
+	ERR(10016)
+
+ISQRT_ERR:
+	ERR(10012)
+
+ICUBRT_ERR:
+	ERR(10013)
+
+EXP_ERR:
+	ERR(10015)
+
+LOG_ERR:
+	ERR(10018)
+
+POWERED_BY_MINUS_NUMBER_ERR:
+	ERR(10009)
+
+LOGBITP_ERR:
+	ERR(10010)
+
+RANDOM_ERR:
+	ERR(10011)
+
+/======================================
+/	データ領域
+/======================================
+	ALIGN
+ZERO:	.double 0d0.00000000000000000000e+00	/0
+DBL1:	.double 0d1.00000000000000000000e+00	/1
+DBL2:	.double 0d2.00000000000000000000e+00	/2
+DBL5:	.double 0d5.00000000000000000000e-01
+DBL_M1:	.double 0d-1.00000000000000000000e+00
+SQR2:	.double 0d1.41421356237309510107e+00	/sqr2
+PI:	.double 0d3.14159265358979323238e+00	/pi
+PI_2:	.double 0d1.57079632679489451519e+00	/pi/2
+LTNC3:	.double 0d-1.57079632679489655800e+00	/-pi/2
+HALF:	.double 0d4.999999e-01			/0.5に最も近い数
+LOG2:	.double 0d6.93147180559945308431e-01	/log2
+LEC1:	.double 0d2.20000000000000000000e+01	/lexpの繰り返し回数
+LTC2:	.double 0d4.45445510338075933987e-06
+SINDATA:	.quad	0xffffffffffffffff
+
+itemp:	dd	0				/浮動小数点変換作業用
+LCW1:	.word	0
+LCW2:	.word	0
+

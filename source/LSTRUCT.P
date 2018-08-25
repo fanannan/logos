@@ -1,0 +1,193 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１９章「構造体」に対応
+/======================================
+
+	.file	"lstruct.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＤＥＦＳＴＲＵＣＴ＞
+/--------------------------------------
+@l_defstruct:
+	SPUSH1;
+	 !l_length; UNMASK1; %eax+=%eax; /要素数のカウント(概数)
+	 %esi=%eax;
+	 PUSH1;
+	  %esi+=%esi; %esi+=%esi;	/配列に使用されるバイト数
+	  %esi+=$4; %edi=%esi;		/使用するバイト数総数
+	  %edi+=structtop;		/終了位置
+	  ?l(structend,%edi); jl mah2;	/領域が足りるか？
+	  %eax=%esi;			/必要なバイト数
+	  !struct_gbc;			/ＧＢＣ呼び出し
+	 POP1;
+	SPOP1;
+	jmp l_defstruct;
+
+mah2:	 POP1;
+	SPOP1;
+	PUSH1;
+	 CAR; 				/構造体の名前
+	 SYMBOLP; jne DEFSTRUCT_ERR;	/構造体の名前がシンボルでない
+	 %ecx=structtop; %ecx+=$4;	/構造体の使用要素数が入る位置を開ける
+	 (%ecx)=%eax; %esi=$2;		/配列要素１に入れる
+	POP1;				/%esi:要素数のカウンタ
+	CDR;
+defs2:	PUSH1; PUSH2
+	  CAR; CELLP; je defs3;		/要素は初期値を与えられているか？
+	  SET2NIL; jmp defs4;		/なければ初期値はnil
+defs3:	  PUSH1;
+	   CDR; CAR; SET2_1;		/初期値
+	  POP1;
+	  CAR;				/要素名
+defs4:	  SYMBOLP; jne DEFSTRUCT_ERR2; 	/要素名がシンボルでない
+	  %ecx+=$4; (%ecx)=%eax;	/要素名の設定
+	  %ecx+=$4; (%ecx)=%ebx;	/要素の初期値の設定
+	  %esi+=$2;			/要素数カウンタ
+	POP2; POP1;
+	CDR; NILP; jne defs2;
+defs5:	%eax=structtop; (%eax)=%esi;	/配列要素数を書込む
+	UNMASK1; xorl $STRUCTTAG,%eax;
+	%ecx+=$4; structtop=%ecx;	/次の構造体の位置
+	ret;
+
+/--------------------------------------
+/	＜ＳＴＲＥＦ＞
+/--------------------------------------
+@l_stref:
+	STRUCTP; jne NOT_STRUCT_ERR;
+	UNMASK1; !search_slot; SET1(4(%ecx));
+	ret;
+
+search_slot:
+	leal 8(%eax),%ecx;		/要素名の位置
+	%edi=(%eax); %esi=$1;		/配列要素数
+stref_loop:
+	%eax=(%ecx); ?l(%eax,%ebx); jne stl;
+	ret;
+
+stl:	%esi++; %esi++; ?l(%esi,%edi); jna STREF_ERR;
+	%ecx+=$8; jmp stref_loop
+
+/--------------------------------------
+/	＜ＳＥＴ−ＳＴＲＵＣＴ＞
+/--------------------------------------
+@l_set_struct:
+	STRUCTP; jne NOT_STRUCT_ERR;
+	UNMASK1;
+	PUSH3; !search_slot; POP1; 4(%ecx)=%eax; ret;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＳＴＲＵＣＴ＞
+/--------------------------------------
+@l_make_struct:
+	SPUSH1;
+	 CAR; STRUCTP; jne NOT_STRUCT_ERR /参照する構造体
+	 !copy_struct; SET4_1;		/新たに作られた構造体
+	SPOP1;
+make_struct_loop:
+	CDR; NILP; jne msl
+	SET1_4; ret;
+
+msl:	PUSH1; PUSH1;
+	  CDR; CAR; SET3_1;		/スロット内容
+	 POP1;
+	 CAR; SET2_1; SET1_4;		/スロット名
+	 PUSH4;
+	  !l_set_struct;
+	POP4; POP1;
+	CDR;
+	jmp make_struct_loop
+
+/--------------------------------------
+/	＜ＣＯＰＹ−ＳＴＲＵＣＴ＞
+/--------------------------------------
+@l_copy_struct:
+	STRUCTP; jne NOT_STRUCT_ERR;
+@copy_struct:
+	SPUSH1;
+	 UNMASK1;
+	 %esi=(%eax); %ecx=%esi;	/要素数
+	 %esi+=%esi; %esi+=%esi;	/配列に使用されるバイト数
+	 %esi+=$4; %edi=%esi;		/使用するバイト数総数
+	 %edx=structtop; %edi+=%edx;	/終了位置
+	 ?l(structend,%edi); jng cs2;	/領域が足りるか？
+	 %eax=%esi;			/必要なバイト数
+	 !struct_gbc;			/ＧＢＣ呼び出し
+	SPOP1;
+	jmp copy_struct;
+
+cs2:	SPOP1; UNMASK1;
+cs3:	?l($0,%ecx); jl cs4;
+	%ebx=(%eax); (%edx)=%ebx; %eax+=$4; %edx+=$4;
+	%ecx--; jmp cs3;
+
+cs4:	%eax=structtop; UNMASK1; xorl $STRUCTTAG,%eax;
+	structtop=%edx;			/次の構造体の位置
+	ret;
+
+/--------------------------------------
+/＜ＳＴＲＵＣＴ−ＴＯ−ＶＥＣＴＯＲ＞
+/--------------------------------------
+@l_struct_to_vector:
+	STRUCTP; jne NOT_STRUCT_ERR;
+	!l_struct_to_list; jmp l_vector;
+
+/--------------------------------------
+/  ＜ＳＴＲＵＣＴ−ＴＯ−ＬＩＳＴ＞
+/--------------------------------------
+@l_struct_to_list:
+	STRUCTP; jne NOT_STRUCT_ERR;
+	UNMASK1; %ecx=(%eax); %ecx--;
+	?l($0,%ecx); je SETNIL;		/要素があるか？（ループの外でチェック）
+	%esi=%eax; SET2($BINDMARK1); SPUSH2;
+vlloop:	%esi+=$4;
+	%eax=(%esi); SPUSH1;
+	%ecx--; ?l($0,%ecx); je vlloop2;
+	jmp vlloop;
+
+vlloop2:
+	SET2NIL;
+vlloop3:
+	SPOP1; ?l($BINDMARK1,%eax); je vlloop4;
+	!l_cons; SET2_1;
+	jmp vlloop3;
+
+vlloop4:
+	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＳＴＲＵＣＴ−ＥＱＵＡＬ＞
+/--------------------------------------
+@l_struct_equal:			/要素の順番が違うとnil
+	STRUCTP; jne NOT_STRUCT_ERR;
+	STRUCTP2; jne NSE2;
+	PUSH2; !l_struct_to_list; SET3_1; POP2;
+	PUSH3; SET1_2; !l_struct_to_list; POP2;
+	jmp l_equal;
+
+NSE2:	SET1_2; jmp NOT_STRUCT_ERR;
+
+/======================================
+/	エラー処理領域
+/======================================
+
+DEFSTRUCT_ERR:
+	ERR(17011)
+
+DEFSTRUCT_ERR2:
+	ERR(17012)
+
+NOT_STRUCT_ERR:
+	ERR(17013)
+
+STREF_ERR:
+	ERR(17014)
+

@@ -1,0 +1,867 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１５章「リスト」に対応
+/======================================
+
+	.file	"llist.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＣＡＲ＞
+/--------------------------------------
+@l_car:	?l($NILTAG,%eax); jb m_car;	/関数として第一引数を取り出す場合
+	PUSH1;
+	 %eax=car_nil_adr; %eax=VALUE(%eax);
+	 ?l($NILTAG,%eax);
+	POP1; je CAR_NIL_ERR
+	SET1NIL; ret;
+
+@m_car:	SET1((%eax)); ret;
+
+/--------------------------------------
+/	＜ＣＤＲ＞
+/--------------------------------------
+@l_cdr:	?l($NILTAG,%eax); jb m_cdr;	/関数として第一引数を取り出す場合
+	SET1NIL; ret;
+@m_cdr:	SET1(4(%eax)); ret;
+
+/--------------------------------------
+/	＜ＮＴＨ＞
+/
+/	第二引数の第一引数番目の要素を
+/	返す
+/--------------------------------------
+@l_nth:	!l_nthcdr; jmp l_car;
+
+/--------------------------------------
+/	＜ＮＴＨＣＤＲ＞
+/
+/	第二引数の第一引数番目の要素以下
+/	を返す
+/--------------------------------------
+@l_nthcdr:
+	FIXNUMP; jne SETNIL;
+	UNMASK1; NUMEXTEND;		/負の数か？
+	?l($0,%eax); jl SETNIL;
+	CELLP2; je L21;
+L22:	SET1NIL;
+L24:	ret;
+
+L21:	UNMASK1; SET3_1; SET1_2;
+L23:	orl %ecx,%ecx; je L24;
+	%ecx--;
+	CDR; jmp L23;
+
+/--------------------------------------
+/	＜Ｃ＊＊＊＊Ｒ＞
+/--------------------------------------
+@l_caar:
+	CAR; jmp l_car;
+
+@l_cddr:
+	CDR; jmp l_cdr;
+
+@l_cadr:
+	CDR; jmp l_car;
+
+@l_cdar:
+	CAR; jmp l_cdr;
+
+@l_caaar:
+	CAR; CAR; jmp l_car;
+
+@l_cdddr:
+	CDR; CDR; jmp l_cdr;
+
+@l_caadr:
+	CDR; CAR; jmp l_car
+
+@l_cadar:
+	CAR; CDR; jmp l_car;
+
+@l_caddr:
+	CDR; CDR; jmp l_car;
+
+@l_cdaar:
+	CAR; CAR; jmp l_cdr;
+
+@l_cdadr:
+	CDR; CAR; jmp l_cdr;
+
+@l_cddar:
+	CAR; CDR; jmp l_cdr;
+
+@l_caaaar:
+	!l_caaar; jmp l_car;
+
+@l_caaadr:
+	!l_caadr; jmp l_car;
+
+@l_caadar:
+	!l_cadar; jmp l_car;
+
+@l_caaddr:
+	!l_caddr; jmp l_car;
+
+@l_cadaar:
+	!l_cdaar; jmp l_car;
+
+@l_cadadr:
+	!l_cdadr; jmp l_car;
+
+@l_caddar:
+	!l_cddar; jmp l_car;
+
+@l_cadddr:
+	!l_cdddr; jmp l_car;
+
+@l_cdaaar:
+	!l_caaar; jmp l_cdr;
+
+@l_cdaadr:
+	!l_caadr; jmp l_cdr;
+
+@l_cdadar:
+	!l_cadar; jmp l_cdr;
+
+@l_cdaddr:
+	!l_caddr; jmp l_cdr;
+
+@l_cddaar:
+	!l_cdaar; jmp l_cdr;
+
+@l_cddadr:
+	!l_cdadr; jmp l_cdr;
+
+@l_cdddar:
+	!l_cddar; jmp l_cdr;
+
+@l_cddddr:
+	!l_cdddr; jmp l_cdr;
+
+@l_fifth:
+	!l_cddddr; jmp l_car;
+
+@l_sixth:
+	!l_cddddr; jmp l_cadr;
+
+@l_seventh:
+	!l_cddddr; jmp l_caddr;
+
+@l_eighth:
+	!l_cddddr; jmp l_cadddr;
+
+@l_nineth:
+	!l_cdddr; !l_cddr; jmp l_cadddr;
+
+@l_tenth:
+	!l_cdddr; !l_cdddr; jmp l_cadddr;
+
+/--------------------------------------
+/	＜ＬＡＳＴ＞
+/
+/	引数の最後のコンスを取り出す
+/--------------------------------------
+@l_last:
+	CELLP; je L14;
+	SET1NIL; ret;
+
+L14:	CELLP; jne L15;
+	SET2_1;
+	CDR; jmp L14
+
+L15:	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＬＡＳＴＥＬＥＭ＞
+/
+/	引数の最後の要素を取り出す
+/--------------------------------------
+@l_lastelem:
+	CELLP; je L17;
+	SET1NIL; ret;
+
+L17:	CELLP; jne L18;
+	SET2_1; CDR; jmp L17;
+
+L18:	SET1_2; jmp l_car;
+
+/--------------------------------------
+/	＜ＣＯＮＳ＞
+/
+/	freecellからセルを取り出し，
+/	新しいセルを組み上げる
+/--------------------------------------
+@l_cons:
+	%edi=freecell;			/freecellのcdr
+	?l(cellend,%edi); jb cons2;	/freecellが終わりか？
+	SPUSH1; SPUSH2;			/ガーベジコレクタ呼出
+	 !cell_gbc;
+	SPOP2; SPOP1;
+	jmp l_cons;
+
+cons2:	(%edi)=%eax;			/carの書換え
+	4(%edi)=%ebx;			/cdrの書換え
+	%eax=%edi;			/返り値
+	%edi+=$8; freecell=%edi;	/freecell位置の更新
+	ret;
+
+/--------------------------------------
+/	＜ＥＮＤＰ＞
+/
+/	%eaxがnilであれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_endp:
+	NILP; je SETT;
+	CELLP; jne ENDP_ERR;
+	jmp SETNIL
+
+/--------------------------------------
+/	＜ＬＩＳＴ＞
+/
+/	引数のリストを作る
+/--------------------------------------
+@l_list:
+	ret;				/eval_listを経るだけでよい
+
+/--------------------------------------
+/	＜ＬＩＳＴ＊＞
+/
+/	引数のリストを作る
+/--------------------------------------
+@l_lista:
+	PUSH1;
+	 CDR; CELLP; je L10;
+	POP1; jmp l_car;
+
+L10:	 !l_lista; SET2_1;
+	POP1; CAR; jmp l_cons;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＬＩＳＴ＞
+/
+/	引数のリストを作る
+/--------------------------------------
+@l_make_list:
+	SET3_1;
+	!l_natnump; NILP; je NOT_PLUS_NUMBER_ERR;
+	SET1_3; UNMASK1; NUMEXTEND; SET3_1;
+	SET1_2; SET2NIL;
+mll:	orl %ecx,%ecx; je mle;
+	SPUSH1;
+	 !l_cons; SET2_1;
+	SPOP1;
+	%ecx--; jmp mll;
+
+mle:	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＡＰＰＥＮＤ＞
+/
+/	引数をつなげる
+/--------------------------------------
+@l_append:
+	SET3NIL;			/r
+	SET4_3;				/q
+	SET3_1;				/(setq r z)
+aploop:	PUSH1;
+	 CDR; CAR; SET2_1;
+	POP1;
+	CAR; !l_append2; SET2_1;
+	SET1_4; !l_append2; SET4_1;
+	SET1_3; CDR; CDR; SET3_1;
+	NILP; jne aploop;
+	SET1_4; ret;
+
+/--------------------------------------
+/	＜ＡＰＰＥＮＤ２＞
+/
+/	引数をつなげる（２引数）
+/--------------------------------------
+@l_append2:
+	CELLP; je L12;
+	SET1_2; ret;
+
+L12:	PUSH1;
+	 CAR; SPUSH1;
+	POP1;
+	CDR; !l_append2; SET2_1;
+	SPOP1; jmp l_cons;
+
+/--------------------------------------
+/	＜ＲＥＶＡＰＰＥＮＤ＞
+/--------------------------------------
+@l_revappend:
+	!l_reverse; jmp l_append;
+
+/--------------------------------------
+/	＜ＮＣＯＮＣ＞
+/--------------------------------------
+@l_nconc:
+	SET3NIL;			/r
+	SET4_3;				/q
+	SET3_1;				/(setq r z)
+ncloop:	SET1_3; CAR; SET2_1;
+	SET1_4; !l_nconc2; SET4_1;
+	SET1_3; CDR; SET3_1;
+	NILP; jne ncloop;
+	SET1_4; ret;
+
+/--------------------------------------
+/	＜ＮＣＯＮＣ２＞
+/--------------------------------------
+@l_nconc2:
+	NILP;  je N11;
+	NILP2; jne N12;
+	ret;
+
+N11:	SET1_2; ret;
+
+N12:	PUSH1; PUSH2;
+	  !l_last;
+	 POP2;
+	 !l_rplacd;
+	POP1; ret;
+
+/--------------------------------------
+/	＜ＮＲＥＣＯＮＣ＞
+/--------------------------------------
+@l_nreconc:
+	!l_nreverse; jmp l_nconc;
+
+/--------------------------------------
+/	＜ＢＵＴＬＡＳＴ＞
+/--------------------------------------
+@l_butlast:
+	PUSH2;
+	 !l_reverse; SET2_1;
+	POP1;
+	NILP; jne bl2;
+	SET1($NUMBERTAG+1);
+bl2:	!l_nthcdr; jmp l_reverse;
+
+/--------------------------------------
+/	＜ＮＢＵＴＬＡＳＴ＞
+/--------------------------------------
+@l_nbutlast:
+	PUSH2;
+	 !l_nreverse; SET2_1;
+	POP1;
+	NILP; jne nbl2;
+	SET1($NUMBERTAG+1);
+nbl2:	!l_nthcdr; jmp l_nreverse;
+
+/--------------------------------------
+/	＜ＬＤＩＦＦ＞
+/--------------------------------------
+@l_ldiff:
+	%ecx=$1;
+	PUSH1;
+ldiff_loop:
+	PUSH1; PUSH2; PUSH3;
+	 CDR; !l_eq; NILP;		/コモンリスプでは eq
+	POP3; POP2; POP1;
+	jne ldiff2;
+	%ecx++;
+	CDR; NILP;
+	jne ldiff_loop;
+ldiff2:	POP1;
+	PUSH1; PUSH3;
+	  !l_length;
+	 POP2;
+	 UNMASK1; %eax-=%ebx; SET2_1;
+	POP1;
+	xorl $NUMBERTAG,%ebx;
+	jmp l_butlast;
+
+/--------------------------------------
+/	＜ＲＰＬＡＣＡ＞
+/
+/	第一引数のcarを第二引数に書換える
+/--------------------------------------
+@l_rplaca:
+	CELLP; je L30;
+	SET1NIL; ret;			/セルでなければnilを返す
+
+L30:	(%eax)=%ebx; ret;		/第１引数のcarを第２引数にする
+
+/--------------------------------------
+/	＜ＲＰＬＡＣＤ＞
+/
+/	第一引数のcdrを第二引数に書換える
+/--------------------------------------
+@l_rplacd:
+	CELLP; je rd31;
+	SET1NIL; ret;
+
+rd31:	4(%eax)=%ebx; ret;		/第１引数のcdrを第２引数にする
+
+/--------------------------------------
+/	＜ＳＵＢＳＴ＞
+/--------------------------------------
+@l_subst:
+	PUSH1; PUSH2; PUSH3;
+	   SET1_3; !l_equal; NILP;
+	POP3; POP2; POP1;
+	jne ste;
+	PUSH1;
+	 SET1_3; !l_atom; NILP
+	POP1;
+	jne st3;
+	SPUSH1; SPUSH2; SPUSH3;
+	 PUSH1;
+	  SET1_3; CDR; SET3_1;
+	 POP1;
+	 !l_subst; SET4_1;
+	SPOP3; SPOP2; SPOP1;
+	PUSH2;
+	 SET2_4; SPUSH2;
+	POP2;
+	SPUSH3;
+	PUSH1;
+	 SET1_3; CAR; SET3_1;
+	POP1;
+	!l_subst;
+	SPOP3; SPOP2;
+	jmp l_cons;
+
+st3:	SET1_3;
+ste:	ret;
+
+/--------------------------------------
+/	＜ＳＵＢＳＴーＩＦ＞
+/--------------------------------------
+@l_subst_if:
+	PUSH1;
+	 SET1_3; !l_atom; NILP;
+	POP1; je si;
+	!subst_sub; jne ste;
+	jmp st3;
+
+si:	SPUSH1; SPUSH2; SPUSH3;
+	 PUSH1;
+	  SET1_3; CDR; SET3_1;
+	 POP1;
+	 !l_subst_if; SET4_1;
+	SPOP3; SPOP2; SPOP1;
+	PUSH2;
+	 SET2_4; SPUSH2;
+	POP2;
+	SPUSH3;
+	PUSH1;
+	 SET1_3; CAR; SET3_1;
+	POP1;
+	!l_subst_if;
+	SPOP3; SPOP2;
+	jmp l_cons;
+
+subst_sub:
+	SPUSH1; SPUSH2; SPUSH3;
+	   SPUSH1; SPUSH2;
+	    SET1_3; !l_kwote; SET2NIL; !l_cons; SET3_1;
+	   SPOP2; SPOP1;
+	   SET1_2; SET2_3; !l_cons;
+	   !l_eval; SET1_4;
+	SPOP3; SPOP2; SPOP1; NILP4;
+	ret;
+
+/--------------------------------------
+/	＜ＳＵＢＳＴ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_subst_if_not:
+	PUSH1;
+	 SET1_3; !l_atom; NILP;
+	POP1; je sin;
+	!subst_sub; je ste;
+	jmp st3;
+
+sin:	SPUSH1; SPUSH2; SPUSH3;
+	 PUSH1;
+	  SET1_3; CDR; SET3_1;
+	 POP1;
+	 !l_subst_if_not; SET4_1;
+	SPOP3; SPOP2; SPOP1;
+	PUSH2;
+	 SET2_4; SPUSH2;
+	POP2;
+	SPUSH3;
+	PUSH1;
+	 SET1_3; CAR; SET3_1;
+	POP1;
+	!l_subst_if_not;
+	SPOP3; SPOP2;
+	jmp l_cons;
+
+/--------------------------------------
+/	＜ＳＵＢＬＩＳ＞
+/--------------------------------------
+@l_sublis:
+	SET3_2;
+sl:	PUSH1;
+	 CAR;
+	 PUSH1;
+	  CAR; %esi=%eax;
+	 POP1; CDR; %edi=%eax;
+	POP1;
+	SPUSH1; SPUSH2;
+	  %eax=%edi; %ebx=%esi; !l_subst; SET3_1;
+	SPOP2; SPOP1;
+	CDR; NILP; je st3;
+	jmp sl;
+
+/--------------------------------------
+/	＜ＭＥＭＢＥＲ＞
+/
+/	第二引数の中に第一引数があれば，
+/	それ以降を返す
+/--------------------------------------
+@l_member:
+	CELLP2; je L2m;
+	SET1NIL; ret;
+
+L2m:	xchg %eax,%ebx;
+mem1:	PUSH1; PUSH2;
+	 CAR; !l_equal; NILP
+	POP2; POP1;
+	je L3m;
+	ret
+
+L3m:	CDR; NILP; jne mem1;
+	ret;
+
+/--------------------------------------
+/	＜ＭＥＭＢＥＲ−ＩＦ＞
+/--------------------------------------
+@l_member_if:
+	CELLP2; jne SETNIL
+	xchg %eax,%ebx;
+memif1:	!memberif_sub
+	je memif2;
+	ret;
+
+memberif_sub:
+	SPUSH1; SPUSH2;
+	 CAR; !l_kwote; SET2NIL; !l_cons; SET2_1;
+	 SPOP1;
+	 SPUSH1;
+	  !l_cons; !l_eval; SET4_1;
+	SPOP2; SPOP1; NILP4;
+	ret;
+
+memif2: CDR; NILP; jne memif1;
+	ret;
+
+/--------------------------------------
+/	＜ＭＥＭＢＥＲ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_member_if_not:
+	CELLP2; jne SETNIL
+	xchg %eax,%ebx;
+memifnot1:
+	!memberif_sub; jne memifnot2;
+	ret;
+
+memifnot2:
+	CDR; NILP; jne memifnot1;
+	ret;
+
+/--------------------------------------
+/	＜ＭＥＭＱ＞
+/
+/	第二引数の中に第一引数があれば，
+/	それ以降を返す
+/--------------------------------------
+@l_memq:
+	CELLP2; je L5m;
+	SET1NIL; ret;
+
+L5m:	xchg %eax,%ebx;
+mem2:	PUSH1; PUSH2;
+	 CAR; !l_eq; NILP;
+	POP2; POP1;
+	je L6m;
+	ret;
+
+L6m:	CDR; NILP; jne mem2;
+	ret;
+
+/--------------------------------------
+/	＜ＴＡＩＬＰ＞
+/--------------------------------------
+@l_tailp:
+	xchg %eax,%ebx;
+tailp_loop:
+	PUSH1; PUSH2;
+	 CDR; !l_eq; NILP;
+	POP2; POP1;
+	jne SETT;
+	CDR; NILP; jne tailp_loop;
+	ret;
+
+/--------------------------------------
+/	＜ＡＤＪＯＩＮ＞
+/--------------------------------------
+@l_adjoin:
+	PUSH1; PUSH2;			/(if (member item list)
+	  !l_member
+	 POP2;
+	NILP;
+	POP1; je l_cons;		/nil -> (cons item list))
+	SET1_2; ret;			/t   -> list
+
+/--------------------------------------
+/	＜ＵＮＩＯＮ＞
+/--------------------------------------
+@l_union:
+	SPUSH1;
+	 CAR; !l_adjoin; SET2_1;
+	SPOP1;
+	CDR; NILP; jne l_union;
+	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＩＮＴＥＲＳＥＣＴＩＯＮ＞
+/--------------------------------------
+@l_intersection:
+	SET3NIL;
+lis:	SPUSH1; SPUSH2;
+	  CAR; !l_member; NILP; je lis2;
+	SPOP2; SPOP1;
+	SPUSH1; SPUSH2;
+	 CAR; SET2_3; !l_cons; SET3_1;
+	SPOP2; SPOP1;
+	jmp lis3;
+
+lis2:	SPOP2; SPOP1;
+lis3:	CDR; NILP; jne lis;
+	SET1_3; ret;
+
+/--------------------------------------
+/　＜ＳＥＴ−ＤＩＦＦＥＲＥＮＣＥ＞
+/--------------------------------------
+@l_set_difference:
+	SET3($BINDMARK1); SPUSH3;
+set_diff1:
+	PUSH1; PUSH2;
+	 CAR; SET3_1;
+	 PUSH3; !l_member; POP3;
+	 NILP;
+	POP2; POP1;
+	jne set_diff2;			/同じ要素があったとき
+	SPUSH3;
+set_diff2:
+	CDR; NILP; jne set_diff1;
+	SET2NIL;
+set_diff3:
+	SPOP1;
+	?l($BINDMARK1,%eax); je set_diff4;
+	!l_cons; SET2_1;
+	jmp set_diff3;
+
+set_diff4:
+	SET1_2; ret
+
+/--------------------------------------
+/　＜ＳＥＴ−ＥＸＣＬＵＳＩＶＥ−ＯＲ＞
+/--------------------------------------
+@l_set_exclusive_or:
+	PUSH1;
+	 !set_xor0;
+	POP2;
+set_xor0:
+	SET3($BINDMARK1); SPUSH3;
+set_xor1:
+	PUSH1; PUSH2;
+	 CAR; SET3_1;
+	 PUSH3; !l_count; POP3;
+	 ?l($NUMBERTAG+1,%eax);
+	POP2; POP1;
+	jne set_xor2;			/同じ要素があったとき
+	SPUSH3;
+set_xor2:
+	CDR; NILP; jne set_xor1;
+	SET2NIL;
+set_xor3:
+	SPOP1;
+	?l($BINDMARK1,%eax); je set_xor4;
+	!l_cons; SET2_1; jmp set_xor3;
+
+set_xor4:
+	SET1_2; ret
+
+/--------------------------------------
+/	＜ＳＵＢＳＥＴＰ＞
+/--------------------------------------
+@l_subsetp:
+	PUSH1;
+	 CAR;
+	 PUSH2;
+	  !l_member; NILP;
+	POP2; POP1; je SETNIL;
+	CDR; NILP; je SETT;
+	jmp l_subsetp;
+
+/--------------------------------------
+/	＜ＡＣＯＮＳ＞
+/--------------------------------------
+@l_acons:				/(cons (cons x y) z)
+	SPUSH3; !l_cons; SPOP3;		/(cons x y)
+	SET2_3; jmp l_cons;
+
+/--------------------------------------
+/	＜ＰＡＩＲＬＩＳ＞
+/--------------------------------------
+@l_pairlis:
+	NILP; je pl1;			/第一引数がなければ第三引数を返す
+	SPUSH2; SPUSH1;
+	 PUSH1;
+	  SET1_2; CDR; SET2_1;		/第二引数のcdrを次の第二引数にする
+	 POP1
+	 CDR; !l_pairlis;		/第一引数のcdrを次の第一引数にし、再帰呼出
+	 SET4_1;			/次の第二引数にする
+	SPOP1; SPOP2;
+	PUSH2; SET2_4; SPUSH2; POP2;	/第二引数の待避
+	 PUSH1; 
+	  SET1_2; CAR; SET2_1
+	 POP1;
+	 CAR; !l_cons;
+	SPOP2;				/第二引数の復帰
+	jmp	l_cons
+
+pl1:	SET1_3; ret;
+
+/--------------------------------------
+/	＜ＡＳＳＯＣ＞
+/--------------------------------------
+@l_assoc:
+	SPUSH2
+	PUSH1;
+	 SET1_2; CAR; CAR; SET2_1;
+	POP1;
+	PUSH1;
+	 !l_eql; NILP;
+	POP1;
+	je L10a;
+	SPOP1;
+	jmp l_car;
+
+L10a:	!assoc_sub2; je SETNIL
+	jmp l_assoc;
+
+assoc_sub2:
+	SPOP2;
+	PUSH1; SET1_2; CDR; SET2_1; POP1;
+	NILP2; ret;
+
+/--------------------------------------
+/	＜ＡＳＳＯＣ−ＩＦ＞
+/--------------------------------------
+@l_assoc_if:
+	!assoc_sub; je associf2;
+	SPOP1; jmp l_car;
+
+assoc_sub:
+	SPUSH2;
+	PUSH1;
+	 SET1_2; CAR; CAR; SET2_1;
+	POP1;
+	SPUSH1;
+	 SET1_2; !l_kwote; SET2NIL; !l_cons; SET2_1;
+	SPOP1;
+	SPUSH1;
+	 !l_cons; !l_eval; SET4_1;
+	SPOP1; NILP4;
+	ret;
+
+associf2:
+	!assoc_sub2; je SETNIL;
+	jmp l_assoc_if;
+
+/--------------------------------------
+/	＜ＡＳＳＯＣ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_assoc_if_not:
+	!assoc_sub; jne associfnot2;
+	SPOP1; jmp l_car;
+
+associfnot2:
+	!assoc_sub2; jne l_assoc_if_not;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＡＳＳＯＣ＞
+/--------------------------------------
+@l_rassoc:
+ras1:	SPUSH2;
+	PUSH1;
+	 SET1_2; !l_cdar; SET2_1;
+	POP1;
+	PUSH1;
+	 !l_eql; NILP;
+	POP1;
+	je L12a;
+	SPOP1;
+	jmp l_car;
+
+L12a:	!assoc_sub2;
+	jne ras1;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＡＳＳＯＣ−ＩＦ＞
+/--------------------------------------
+@l_rassoc_if:
+	!rassoc_sub;
+	je rassocif2;
+	SPOP1;
+	jmp l_car;
+
+rassoc_sub:
+	SPUSH2;
+	PUSH1;
+	 SET1_2; !l_cdar; SET2_1;
+	POP1;
+	SPUSH1;
+	 SET1_2; !l_kwote; SET2NIL; !l_cons; SET2_1;
+	SPOP1;
+	SPUSH1;
+	 !l_cons; !l_eval; SET4_1;
+	SPOP1; NILP4;
+	ret;
+
+rassocif2:
+	!assoc_sub2; jne l_rassoc_if;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＡＳＳＯＣ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_rassoc_if_not:
+	!rassoc_sub; jne rassocifnot2;
+	SPOP1;
+	jmp l_car;
+
+rassocifnot2:
+	!assoc_sub2; jne l_rassoc_if_not;
+	jmp SETNIL;
+
+/======================================
+/	エラー処理領域
+/======================================
+CAR_NIL_ERR:
+	ERR(8004)
+
+@NOT_SYMBOL_ERR:
+	ERR(8007)
+
+NOT_PLUS_NUMBER_ERR:
+	ERR(8002)
+
+ENDP_ERR:
+	ERR(8003)
+

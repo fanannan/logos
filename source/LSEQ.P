@@ -1,0 +1,902 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/  コモンリスプ第１４章「列」に対応
+/======================================
+
+	.file	"lseq.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＥＬＴ＞
+/--------------------------------------
+@l_elt:	ARRAYP; je l_svref;		/ベクタならばsvrefへ行く
+	STRINGP; je l_char;		/文字列の場合
+	FIXNUMP2; jne SETNIL;
+	NUMEXTEND2; ja SETNIL;		/負の数か？
+	CELLP; jne SETNIL;
+	xchg %eax,%ebx; !l_nthcdr;	/nthと同じ
+	jmp l_car
+
+/--------------------------------------
+/	＜ＳＵＢＳＥＱ＞
+/--------------------------------------
+@l_subseq:
+	FIXNUMP2;  jne SETNIL;
+	NUMEXTEND2; ja SETNIL;		/負の数か？
+	NILP3;  jne sq2;
+	%ecx=$0;  jmp sq3;
+
+sq2:	FIXNUMP3; jne SETNIL;
+	NUMEXTEND3; ja SETNIL;		/負の数か？
+	PUSH1; PUSH2; PUSH3;
+	  !l_length;
+	 POP3;
+	 UNMASK1; UNMASK3;
+	 %eax-=%ecx; %eax--; SET3_1;
+	POP2; POP1;
+sq3:	ARRAYP; je subseq_vector;	/ベクタの場合
+	STRINGP; je c_substring;	/文字列の場合
+subseq:	CELLP; jne SETNIL;
+	PUSH3; xchg %eax,%ebx;
+	 !l_nthcdr;
+	POP2; xorl $NUMBERTAG,%ebx;
+	jmp l_butlast;
+
+subseq_vector:
+	SPUSH2; SPUSH3;
+	 !l_vector_to_list;
+	SPOP3; SPOP2;
+	!subseq; jmp l_vector;
+
+/--------------------------------------
+/	＜ＣＯＰＹ−ＳＥＱ＞
+/--------------------------------------
+@l_copy_seq:
+	CELLP; je copy_seq;
+	ARRAYP; je copy_seq_vector;
+	STRINGP; je l_copy_string;
+	ret;
+
+copy_seq:
+	SPUSH1;
+	 CDR; !l_copy_seq; SET2_1;
+	SPOP1;
+	SPUSH2;
+	 CAR; !l_copy_seq;
+	SPOP2;
+	jmp l_cons;
+
+copy_seq_vector:
+	!l_vector_to_list; !copy_seq; jmp l_vector;
+
+/--------------------------------------
+/	＜ＬＥＮＧＴＨ＞
+/
+/	リストの要素数を返す
+/--------------------------------------
+@l_length:
+	ARRAYP; je l_array_dimension;	/ベクタならばarray_dimensionへ行く
+	STRINGP; je l_string_length;	/文字列の場合
+	CELLP; jne SETNIL;
+	%ecx=$0;
+L7:	CELLP; jne L8;
+	%ecx++;
+	CDR; jmp L7;
+
+L8:	SET1(%ecx); jmp SETNUM;
+
+/--------------------------------------
+/	＜ＲＥＶＥＲＳＥ＞
+/--------------------------------------
+@l_reverse:
+	ARRAYP; je reverse_vector;
+	STRINGP; je reverse_string;
+	SET2NIL;
+rlp:	CELLP; je L9;
+	SET1_2;
+	ret;
+
+L9:	SPUSH1;
+	 CAR; !l_cons; SET2_1;
+	SPOP1;
+	CDR; jmp rlp
+
+reverse_vector:
+	!l_vector_to_list; !l_reverse; jmp l_vector;
+
+reverse_string:
+	!l_string_to_vector; !reverse_vector;
+	jmp l_vector_to_string;
+
+/--------------------------------------
+/	＜ＮＲＥＶＥＲＳＥ＞
+/--------------------------------------
+@l_nreverse:
+	jmp l_reverse;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＳＥＱＵＥＮＣＥ＞
+/--------------------------------------
+@l_make_sequence:
+	PUSH3; SET3_1; SET1_2; POP2;
+	UNMASK3;
+	?l(stringadr,%ecx); je l_make_string;
+	?l(characteradr,%ecx); je l_make_string;
+	?l(consadr,%ecx); je l_make_list;
+	?l(arrayadr,%ecx); je ms2;
+	jmp SETNIL;
+
+ms2:	!l_make_list; jmp l_vector;
+
+/--------------------------------------
+/	＜ＣＯＮＣＡＴＥＮＡＴＥ＞
+/--------------------------------------
+@l_concatenate:
+	PUSH1; CAR; SET3_1; POP1;
+	CDR;
+	SPUSH3; !cappend; SPOP3;
+to_seq_of_each_type:
+	UNMASK3;
+	?l(stringadr,%ecx); je l_list_to_string;
+	?l(characteradr,%ecx); je l_list_to_string;
+	?l(arrayadr,%ecx); je l_vector;
+	?l(listadr,%ecx); je l_copy_seq;
+	?l(consadr,%ecx); je l_copy_seq;
+	jmp SETNIL;
+
+cappend:
+	SET3NIL;			/r
+	SET4_3;				/q
+	SET3_1;				/(setq r z)
+caploop:
+	SPUSH1;
+	 CDR; CAR; !conv_to_list; SET2_1;
+	SPOP1;
+	CAR; !conv_to_list; !cappend2; SET2_1;
+	SET1_4; !conv_to_list; !cappend2; SET4_1;
+	SET1_3; CDR; CDR; SET3_1;
+	NILP; jne caploop;
+	SET1_4; ret;
+
+cappend2:
+	CELLP; je cL12;
+	SET1_2; ret;
+
+cL12:	PUSH1;
+	 CAR; SPUSH1;
+	POP1;
+	CDR; !cappend2; SET2_1;
+	SPOP1; jmp l_cons;
+
+conv_to_list:
+	SPUSH2; SPUSH3; SPUSH4; !cl; SPOP4; SPOP3; SPOP2; ret;
+
+cl:	ARRAYP; je l_vector_to_list;
+	STRINGP; je l_string_to_list;
+	CELLP;	jne SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜ＭＡＰ＞
+/--------------------------------------
+@l_map:	PUSH1; CAR; SET3_1; POP1;
+	CDR;
+	SPUSH3; !l_mapcar; SPOP3;
+	jmp to_seq_of_each_type;
+
+/--------------------------------------
+/	＜ＳＯＭＥ＞
+/--------------------------------------
+@l_some:
+	!l_mapcar;
+some2:	NILP; jne some3;
+	ret;
+
+some3:	PUSH1;
+	 CAR; SET2_1; NILP;
+	POP1; je some4;
+	SET1_2; ret;
+
+some4:	CDR; NILP; jne some3;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＥＶＥＲＹ＞
+/--------------------------------------
+@l_every:
+	!l_mapcar;
+every2:	PUSH1;
+	 CAR; SET2_1; NILP;
+	POP1; jne every3;
+	jmp SETNIL;
+
+every3:	CDR; NILP; jne every2;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＮＯＴＡＮＹ＞
+/--------------------------------------
+@l_notany:
+	!l_mapcar; !some2; jmp l_null;
+
+/--------------------------------------
+/	＜ＮＯＴＥＶＥＲＹ＞
+/--------------------------------------
+@l_notevery:
+	!l_mapcar; !every2; jmp l_null;
+
+/--------------------------------------
+/	＜ＲＥＤＵＣＥ＞
+/--------------------------------------
+@l_reduce:
+	xchg %eax,%ebx;			/%ebx:適用関数
+	jmp reduce;
+
+/--------------------------------------
+/	＜ＲＥＤＵＣＥ＊＞
+/--------------------------------------
+@l_reduce_a:
+	PUSH1;
+	 CAR; SET2_1;			/適用関数
+	POP1;
+	CDR;
+reduce:	!conv_to_list;
+reduce1:
+	NILP; je rdaret0;
+	PUSH1;
+	 CAR; SET3_1;			/第１項
+	POP1;
+	CDR; NILP; je rdaret1;
+rdaloop:
+	SPUSH1; SPUSH2;
+	  CAR; !l_kwote; SET2NIL; !l_cons; /最新の項をリスト化
+	  SET2_1; SET1_3; 
+	 SPUSH2; !l_kwote; SPOP2;
+	 !l_cons; SET2_1;		/前の項をつなげる
+	 SPOP1;
+	 SPUSH1;
+	  !l_cons; !l_eval; SET3_1;	/関数をつなげ評価する
+	 SPOP2;
+	SPOP1;
+	CDR; NILP; je rdaret2;
+	jmp rdaloop;
+
+rdaret0:
+	SET1_2; SET2NIL;		/引数がない場合
+	!l_cons; jmp l_eval;
+
+rdaret1:
+	SPUSH2;				/引数が１つの場合
+	 SET1_3; !l_kwote; SET2NIL; !l_cons; SET2_1;
+	SPOP1;
+	!l_cons; jmp l_eval;
+
+rdaret2:				/引数が複数ある場合
+	SET1_3; ret;
+
+/--------------------------------------
+/	＜ＦＩＬＬ＞
+/--------------------------------------
+@l_fill:
+	CELLP; je fill0;
+	STRINGP; je fill1;
+	ARRAYP; je fill2;
+	jmp NOT_SEQ_ERR;
+
+fill0:	SPUSH2; SPUSH3; SPUSH4;
+	 !l_vector;
+	SPOP4; SPOP3; SPOP2;
+	!fill2; jmp l_vector_to_list;
+
+fill1:	SPUSH2; SPUSH3; SPUSH4;
+	 !l_string_to_vector;
+	SPOP4; SPOP3; SPOP2;
+	!fill2; jmp l_vector_to_string;
+
+fill2:	NILP3;  je fill20;
+	FIXNUMP3; jne FILL_ERR2;
+fill20:	UNMASK3;
+	NILP4; jne fill21;
+	PUSH1; PUSH2; PUSH3;
+	 !l_length; SET4_1;
+	POP3; POP2; POP1;
+	jmp fill22;
+
+fill21:	FIXNUMP4; jne FILL_ERR2;
+fill22:	UNMASK4; xchg %ebx,%ecx; /%ebx:開始位置 %ecx:修正要素
+fill3:	PUSH2; PUSH3; PUSH4;
+	 xorl $NUMBERTAG,%ebx
+	 !l_set_vector;
+	POP4; POP3; POP2;
+	%ebx++;
+	?l(%ebx,%edx); jne fill3
+	ret;
+
+/--------------------------------------
+/	＜ＲＥＭＯＶＥ＞
+/--------------------------------------
+@l_remove:
+	xchg %eax,%ebx;
+	ARRAYP; je remvp0;
+	STRINGP; je remvp1;
+	CELLP; je remv0
+	jmp NOT_SEQ_ERR;
+
+remvp0:	SPUSH2; !l_vector_to_list; SPOP2;
+	!remv0; jmp l_vector;
+
+remvp1:	SPUSH2; !l_string_to_list; SPOP2;
+	!remv0; jmp l_list_to_string;
+
+
+remv0:	SET3($BINDMARK1); SPUSH3;
+remv1:	PUSH1;
+	 CAR;
+	 PUSH1; PUSH2;
+	   !l_equal; NILP;
+	 POP2; POP1;
+	 jne remv2;
+	 SPUSH1;
+remv2:	POP1;
+	CDR; NILP; jne remv1;
+	SET2NIL;
+remv3:	SPOP1;
+	?l($BINDMARK1,%eax); jne remv4;
+	SET1_2; ret;
+
+remv4:	!l_cons; SET2_1; jmp remv3;
+
+/--------------------------------------
+/	＜ＲＥＭＯＶＥ−ＩＦ＞
+/--------------------------------------
+@l_remove_if:
+	xchg %eax,%ebx;
+	ARRAYP; je remvifp0;
+	STRINGP; je remvifp1;
+	CELLP; je remvif0
+	jmp NOT_SEQ_ERR;
+
+remvifp0:
+	SPUSH2; !l_vector_to_list; SPOP2;
+	!remvif0; jmp l_vector;
+
+remvifp1:
+	SPUSH2; !l_string_to_list; SPOP2;
+	!remvif0; jmp l_list_to_string;
+
+remvif0:
+	SET3($BINDMARK1); SPUSH3;
+remvif1:
+	PUSH1;
+	 !remov_sub; jne remvif2;
+	 SPUSH1;
+remvif2:
+	POP1;
+	CDR; NILP; jne remvif1;
+	SET2NIL; jmp remv3
+
+remov_sub:
+	CAR;
+	SPUSH1; SPUSH2;
+	  !l_kwote; !l_cons; SET2_1;
+	 SPOP1;
+	 SPUSH1;
+	  !l_cons; !l_eval; SET4_1;
+	SPOP2; SPOP1;
+	NILP4;
+	ret;
+
+/--------------------------------------
+/  ＜ＲＥＭＯＶＥ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_remove_if_not:
+	xchg %eax,%ebx;
+	ARRAYP; je remvifnotp0;
+	STRINGP; je remvifnotp1;
+	CELLP; je remvifnot0
+	jmp NOT_SEQ_ERR;
+
+remvifnotp0:
+	SPUSH2; !l_vector_to_list; SPOP2;
+	!remvifnot0; jmp l_vector;
+
+remvifnotp1:
+	SPUSH2; !l_string_to_list; SPOP2;
+	!remvifnot0; jmp l_list_to_string;
+
+remvifnot0:
+	SET3($BINDMARK1); SPUSH3;
+remvifnot1:
+	PUSH1;
+	 !remov_sub; je remvifnot2
+	 SPUSH1;
+remvifnot2:
+	POP1;
+	CDR; NILP; jne remvifnot1
+	SET2NIL; jmp remv3
+
+/--------------------------------------
+/  ＜ＤＥＬＥＴＥ＞
+/  ＜ＤＥＬＥＴＥ−ＩＦ＞
+/  ＜ＤＥＬＥＴＥ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+/--------------------------------------
+/ ＜ＲＥＭＯＶＥ−ＤＵＰＬＩＣＡＴＥ＞
+/--------------------------------------
+@l_remove_duplicates:
+	ARRAYP; je remvdupp0;
+	STRINGP; je remvdupp1;
+	CELLP; je remvdup0
+	jmp NOT_SEQ_ERR;
+
+remvdupp0:
+	SPUSH2; !l_vector_to_list; SPOP2;
+	!remvdup0; jmp l_vector;
+
+remvdupp1:
+	SPUSH2; !l_string_to_list; SPOP2;
+	!remvdup0; jmp l_list_to_string;
+
+remvdup0:
+	SET3($BINDMARK1); SPUSH3;
+remvdup1:
+	PUSH1;
+	 CAR; SET2_1;
+	POP1;
+	PUSH1;
+	 CDR; xchg %eax,%ebx;
+	 PUSH1;
+	  !l_member;
+	 POP2;
+	 NILP; jne remvdup2;
+	 SPUSH2;
+remvdup2:
+	POP1
+	CDR; NILP; jne remvdup1;
+	SET2NIL; jmp remv3;
+
+/--------------------------------------
+/ ＜ＤＥＬＥＴＥ−ＤＵＰＬＩＣＡＴＥ＞
+/--------------------------------------
+/--------------------------------------
+/	＜ＳＵＢＳＴＩＴＵＴＥ＞
+/--------------------------------------
+@l_substitute:
+	SET4_1; SET1_3; SET3_4;
+	ARRAYP; je substp0;
+	STRINGP; je substp1;
+	CELLP; je subst0
+	jmp NOT_SEQ_ERR;
+
+substp0:
+	SPUSH4; SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3; SPOP4;
+	!subst0; jmp l_vector;
+
+substp1:
+	SPUSH4; SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3; SPOP4;
+	!subst0; jmp l_list_to_string;
+
+subst0:	SET4($BINDMARK1); SPUSH4;
+subst1:	PUSH1;
+	 CAR;
+	 PUSH1; PUSH2; PUSH3;
+	  !l_equal; NILP;
+	 POP3; POP2; POP1;
+	 je subst11;
+	 SPUSH3;
+	 jmp	subst2
+
+subst11: SPUSH1;
+subst2:	POP1;
+	CDR; NILP; jne subst1;
+	SET2NIL; jmp remv3
+
+/--------------------------------------
+/　＜ＳＵＢＳＴＩＴＵＴＥ−ＩＦ＞
+/--------------------------------------
+@l_substitute_if:
+	SET4_1; SET1_3; SET3_4
+	ARRAYP; je substifp0;
+	STRINGP; je substifp1;
+	CELLP; je substiif0
+	jmp NOT_SEQ_ERR;
+
+substifp0:
+	SPUSH4; SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3; SPOP4;
+	!substiif0; jmp l_vector;
+
+substifp1:
+	SPUSH4; SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3; SPOP4;
+	!substiif0; jmp l_list_to_string;
+
+substiif0:
+	SET4($BINDMARK1); SPUSH4;
+substiif1:
+	PUSH1;
+	 !remov_sub; je substiif11;
+	 SPUSH3; jmp substiif2;
+
+substiif11:
+	 SPUSH1;
+substiif2:
+	POP1;
+	CDR; NILP; jne substiif1;
+	SET2NIL; jmp remv3;
+
+/--------------------------------------
+/＜ＳＵＢＳＴＩＴＵＴＥ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_substitute_if_not:
+	SET4_1; SET1_3; SET3_4
+	ARRAYP; je substifnotp0;
+	STRINGP; je substifnotp1;
+	CELLP; je substiifnot0
+	jmp NOT_SEQ_ERR;
+
+substifnotp0:
+	SPUSH4; SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3; SPOP4;
+	!substiifnot0; jmp l_vector;
+
+substifnotp1:
+	SPUSH4; SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3; SPOP4;
+	!substiifnot0; jmp l_list_to_string;
+
+
+substiifnot0:
+	SET4($BINDMARK1); SPUSH4;
+substiifnot1:
+	PUSH1;
+	 !remov_sub; jne substiifnot11;
+	 SPUSH3; jmp substiifnot2;
+
+substiifnot11:
+	 SPUSH1;
+substiifnot2:
+	POP1;
+	CDR; NILP; jne substiifnot1;
+	SET2NIL; jmp remv3;
+
+/--------------------------------------
+/	＜ＦＩＮＤ＞
+/--------------------------------------
+@l_find:
+	xchg %eax,%ebx;
+	ARRAYP; je findp0;
+	STRINGP; je findp1;
+	CELLP; je find0
+	jmp NOT_SEQ_ERR;
+
+findp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp find0;
+
+findp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+find0:	PUSH1;
+	 CAR;
+	 PUSH1; PUSH2;
+	  !l_equal; NILP;
+	 POP2; POP3; POP1;
+	jne find1;
+	CDR; NILP; jne find0;
+	ret;
+
+find1:	SET1_3; ret;
+
+/--------------------------------------
+/	＜ＦＩＮＤ−ＩＦ＞
+/--------------------------------------
+@l_find_if:
+	xchg %eax,%ebx;
+	ARRAYP; je findifp0;
+	STRINGP; je findifp1;
+	CELLP; je findif0
+	jmp NOT_SEQ_ERR;
+
+findifp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp findif0;
+
+findifp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+findif0:
+	PUSH1;
+	 !remov_sub;
+	POP1;
+	jne l_car;
+	CDR; NILP; jne findif0;
+	ret;
+
+/--------------------------------------
+/	＜ＦＩＮＤ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_find_if_not:
+	xchg %eax,%ebx
+	ARRAYP; je findifnotp0;
+	STRINGP; je findifnotp1;
+	CELLP; je findifnot0
+	jmp NOT_SEQ_ERR;
+
+findifnotp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp findifnot0;
+
+findifnotp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+findifnot0:
+	PUSH1;
+	 !remov_sub;
+	POP1;
+	je l_car;
+	CDR; NILP; jne findifnot0
+	ret;
+
+/--------------------------------------
+/	＜ＰＯＳＩＴＩＯＮ＞
+/--------------------------------------
+@l_position:
+	xchg %eax,%ebx;
+	ARRAYP; je positionp0;
+	STRINGP; je positionp1;
+	CELLP; je position0
+	jmp NOT_SEQ_ERR;
+
+positionp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp position0;
+
+positionp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+position0:
+	%ecx=$-1;
+position1:
+	%ecx++;
+	PUSH1; PUSH3;
+	  CAR;
+	  PUSH2;
+	   !l_equal; NILP;
+	POP2; POP3; POP1;
+	jne position2;
+	CDR; NILP; jne position1;
+	ret;
+
+position2:
+	SET1_3; jmp SETNUM;
+
+/--------------------------------------
+/  ＜ＰＯＳＩＴＩＯＮ−ＩＦ＞
+/--------------------------------------
+@l_position_if:
+	xchg %eax,%ebx;
+	ARRAYP; je positionifp0;
+	STRINGP; je positionifp1;
+	CELLP; je positionif0
+	jmp NOT_SEQ_ERR;
+
+positionifp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp positionif0;
+
+positionifp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+positionif0:
+	%ecx=$-1;
+positionif1:
+	%ecx++;
+	!position_sub; jne position2;
+	CDR; NILP; jne positionif1;
+	ret;
+
+position_sub:
+	SPUSH1; SPUSH3;
+	  CAR;
+	  SPUSH2;
+	   !l_kwote; !l_cons; SET2_1;
+	  SPOP1;
+	  SPUSH1;
+	   !l_cons; !l_eval; SET4_1;
+	SPOP2; SPOP3; SPOP1;
+	NILP4; ret;
+
+/--------------------------------------
+/＜ＰＯＳＩＴＩＯＮ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_position_if_not:
+	xchg %eax,%ebx;
+	ARRAYP; je positionifnotp0;
+	STRINGP; je positionifnotp1;
+	CELLP; je positionifnot0
+	jmp NOT_SEQ_ERR;
+
+positionifnotp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp positionifnot0;
+
+positionifnotp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+positionifnot0:
+	%ecx=$-1;
+positionifnot1:
+	%ecx++;
+	!position_sub; je position2;
+	CDR; NILP; jne positionifnot1;
+	ret;
+
+/--------------------------------------
+/	＜ＣＯＵＮＴ＞
+/--------------------------------------
+@l_count:
+	xchg %eax,%ebx;
+	ARRAYP; je countp0;
+	STRINGP; je countp1;
+	CELLP; je count0
+	jmp NOT_SEQ_ERR;
+
+countp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp count0;
+
+countp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+count0:	%ecx=$0;
+count1:	PUSH1; PUSH2; PUSH3;
+	   CAR; !l_equal; NILP
+	POP3; POP2; POP1;
+	je count2;
+	%ecx++;
+count2:	CDR; NILP; jne count1;
+	jmp position2;
+
+/--------------------------------------
+/	＜ＣＯＵＮＴ−ＩＦ＞
+/--------------------------------------
+@l_count_if:
+	xchg %eax,%ebx;
+	ARRAYP; je countifp0;
+	STRINGP; je countifp1;
+	CELLP; je countif0
+	jmp NOT_SEQ_ERR;
+
+countifp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp countif0;
+
+countifp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+countif0:
+	%ecx=$0;
+countif1:
+	!position_sub; je countif2;
+	%ecx++;
+countif2:
+	CDR; NILP; jne countif1;
+	jmp position2
+
+/--------------------------------------
+/　　＜ＣＯＵＮＴ−ＩＦ−ＮＯＴ＞
+/--------------------------------------
+@l_count_if_not:
+	xchg %eax,%ebx;
+	ARRAYP; je countifnotp0;
+	STRINGP; je countifnotp1;
+	CELLP; je countifnot0
+	jmp NOT_SEQ_ERR;
+
+countifnotp0:
+	SPUSH3; SPUSH2; !l_vector_to_list; SPOP2; SPOP3;
+	jmp countifnot0;
+
+countifnotp1:
+	SPUSH3; SPUSH2; !l_string_to_list; SPOP2; SPOP3;
+countifnot0:
+	%ecx=$0;
+countifnot1:
+	!position_sub; jne countifnot2;
+	%ecx++;
+countifnot2:
+	CDR; NILP; jne countifnot1;
+	jmp position2;
+
+/--------------------------------------
+/	＜ＳＯＲＴ＞
+/--------------------------------------
+@l_sort:
+	ARRAYP; je sort1;
+	STRINGP; je sortp1;
+	CELLP; je sortp0
+	jmp NOT_SEQ_ERR;
+
+sortp0:	SPUSH2; !l_vector; SPOP2; !sort1; jmp l_vector_to_list;
+
+sortp1: SPUSH2; !l_string_to_vector; SPOP2; !sort1; jmp l_vector_to_string;
+
+sort1:	pushl sort_pred;
+	 sort_pred=%ebx;		/ソートする述語関数
+	 PUSH1;
+	  !l_length; UNMASK1; NUMEXTEND; %eax--; SET3_1;
+	 POP1;				/列の長さ
+	 SET2($0);			/ソート開始位置
+	 !sort2;
+	popl sort_pred;
+	ret;
+
+sort2:	pusha;
+	%esi=%ebx; %edi=%ecx;		/%eax:ベクタ %ebx:first %ecx:last
+	PUSH2; PUSH3;			/%esi:i:fast %edi:j:last
+	  %ebx+=%ecx; shrl %ebx;	/%ebx=(fast+last)/2
+	  PUSH1;
+	   !c_svref; SET4_1;		/%edx:x
+	  POP1;
+sort3:	  PUSH1; %ebx=%esi;
+	   !c_svref; SET2_1;
+	  POP1;
+	  !sort_compare; je sort4;
+	  %esi++; jmp sort3;
+
+sort4:	  PUSH1; %ebx=%edi;
+	   !c_svref; SET2_1;
+	  POP1;
+	  xchg %ebx,%edx;
+	  !sort_compare; je sort5;
+	  xchg %ebx,%edx;
+	  %edi--; jmp sort4;
+
+sort5:	  ?l(%edi,%esi); jge sort6;
+	  PUSH1; %ebx=%esi;
+	   !c_svref; SET3_1;
+	  POP1;
+	  PUSH3;
+	   PUSH1; %ebx=%edi;
+	    !c_svref; SET3_1;
+	   POP1;
+	   PUSH1; %ebx=%esi;
+	    !c_set_vector;
+	   POP1;
+	  POP3;
+	  PUSH1; %ebx=%edi;
+	   !c_set_vector;
+	  POP1;
+	  %esi++; %edi--;
+	  jmp sort3;
+
+sort6:	POP3; POP2;
+	%esi--;
+	?l(%ebx,%esi); jg sort7;
+	%esi++; jmp sort8;
+
+sort7:	PUSH3; %ecx=%esi; %esi++; !sort2; POP3;
+sort8:	%edi++;
+	?l(%edi,%ecx); jg sort9;
+	%edi--;
+sort10:	popa;
+	ret;
+
+sort9:	PUSH2; %ebx=%edi; %edi--; !sort2; POP2;
+	jmp sort10;
+
+sort_compare:
+	pusha
+	 SPUSH2;
+	  SET1_4; !l_kwote; SET2NIL; !l_cons; SET2_1;
+	 SPOP1;
+	 SPUSH2; !l_kwote; SPOP2; !l_cons; SET2_1;
+	 SET1(sort_pred); !l_cons;
+	 !l_eval; NILP;
+	popa;
+	ret;
+
+sort_pred:	dd	0
+
+/======================================
+/	エラー処理領域
+/======================================
+NOT_SEQ_ERR:
+	ERR(8005)
+
+FILL_ERR2:
+	ERR(8006)
+

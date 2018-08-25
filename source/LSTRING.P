@@ -1,0 +1,751 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１８章「文字列」に対応
+/======================================
+
+	.file	"lstring.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＣＨＡＲ＞
+/--------------------------------------
+@l_char:
+	STRSYMPE;
+	NILP2; je char0;
+	FIXNUMP2; jne CHAR_NOT_INTEGER_ERR;
+	jmp char1;
+
+char0:	SET2($NUMBERTAG);		/第２引数省略時は第０番目の文字を指定
+char1:	UNMASK1; UNMASK2; %ecx=$-1;
+char2:	?l(%ecx,%ebx); je char4;
+	cmpb $0,(%eax); je SETNIL;	/文字列の位置を超えていたらnilを返す
+	PUSH1; %al=(%eax); !kanjip_al; POP1;
+	?b($0,%dl); jne char3;
+	%eax++;
+char3:	%eax++; %ecx++; jmp char2;
+
+char4:	?b($0,%dl); je char5;
+	%eax--; SET3_1; %eax=$0;
+	%al=(%ecx); jmp SETCHAR;
+
+char5:	%eax-=$2; SET3_1; %eax=$0;
+	%al=(%ecx); %ah=%al; %al=1(%ecx); jmp SETCHAR;
+
+@kanjip_al:				/漢字の処理
+	?b($0x80,%al); jbe gn3;		/80h以下 81h-9fh
+	?b($0x9f,%al); jbe gn2;		/9fh以下
+gn1:	?b($0x0df,%al); jbe gn3;	/dfh以下e0h-fch
+	?b($0x0fch,%al); ja gn3;	/fchより上
+gn2:	%dl=$0; ret;			/漢字１バイト目
+gn3:	%dl=$1; ret;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ−ＬＥＮＧＴＨ＞
+/--------------------------------------
+@l_string_length:
+	STRSYMPE;
+	UNMASK1; %ecx=$-1;
+slt:	cmpb $0,(%eax); je slt3;
+	PUSH1; %al=(%eax); !kanjip_al; POP1;
+	?b($0,%dl); jne slt2;
+	%eax++;
+slt2:	%eax++; %ecx++; jmp slt;
+
+slt3:	SET1_3; %eax++; jmp SETNUM;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＢＹＴＥ−ＬＥＮＧＴＨ＞
+/--------------------------------------
+@l_string_byte_length:
+	STRSYMPE;
+	UNMASK1; %ecx=$-1;
+stplt:	cmpb $0,(%eax); je stplt2;
+	%eax++; %ecx++; jmp stplt;
+
+stplt2:	SET1_3; %eax++; jmp SETNUM;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＰＯＳＩＴＩＯＮ−ＴＯ−ＢＹＴＥ−ＰＯＳＩＴＩＮ＞
+/--------------------------------------
+@l_string_position_to_byte_position:
+	!tra;
+splt:	?l(%ecx,%ebx); jle splt2;
+	cmpb $0,(%eax); je SETNIL;
+	!splts; jmp splt;
+splt2:	SET1_4;
+	?l($0,%esi); jne SETNUM;
+	%eax--; jmp SETNUM;		/漢字の位置になったときは漢字の先頭の位置を返す
+
+tra:	STRSYMPE;
+	FIXNUMP2; je tra2;
+	SET1_2; jmp CHAR_NOT_INTEGER_ERR;
+tra2:	UNMASK1; UNMASK2; NUMEXTEND2;
+	%ecx=$-1; %edx=$-1;
+	ret;
+
+splts:	PUSH4; PUSH1; %al=(%eax); !kanjip_al; POP1;
+	 %esi=$1; ?b($0,%dl);
+	POP4; jne splts2;
+	%eax++; %edx++; %esi=$0;	/漢字の場合
+splts2:	%eax++; %edx++; %ecx++; ret;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＢＹＴＥ−ＰＯＳＩＴＩＯＮ−ＴＯ−ＰＯＳＩＴＩＮ＞
+/--------------------------------------
+@l_string_byte_position_to_position:
+	!tra;
+splbt:	?l(%edx,%ebx); jle splbt3;
+	cmpb $0,(%eax); je SETNIL;
+	!splts; jmp splbt;
+splbt3:	SET1_3; jmp SETNUM;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ＝＞
+/
+/	等しい
+/--------------------------------------
+@l_string_equala:
+	!check_two_strings;
+se1:	%cl=(%eax); %dl=(%ebx);
+	?b(%dl,%cl); jne SETNIL;
+	%eax++; %ebx++; 
+	orb %cl,%cl; jne se1
+	jmp SETT;
+
+@c_string_equala:
+	UNMASK1; UNMASK2; jmp se1;
+
+check_two_strings:
+	STRSYMPE;
+	PUSH1; SET1_2: STRSYMPE; SET2_1; POP1;
+	UNMASK1; UNMASK2;
+	ret;
+
+@string_or_symbol_p_e:
+	STRINGP; je sr;
+	SYMBOLP; jne NOT_STRING_NOR_SYMBOL_ERR;
+	%eax+=$ATOMNAME;
+sr:	ret;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ＜＞
+/--------------------------------------
+@l_string_lesspa:
+	!check_two_strings;
+sl1:	%cl=(%eax); %dl=(%ebx);
+	?b(%dl,%cl); jl SETT;
+	%eax++; %ebx++;
+	orb %cl,%cl; jne sl1
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ＞＞
+/--------------------------------------
+@l_string_gtpa:
+	!check_two_strings;
+sg1:	%cl=(%eax); %dl=(%ebx);
+	?b(%dl,%cl); jg SETT;
+	%eax++; %ebx++;
+	orb %cl,%cl; jne sg1
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ＝＜＞
+/--------------------------------------
+@l_string_ngtpa:
+	!l_string_gtpa; jmp l_null
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ＝＞＞
+/--------------------------------------
+@l_string_nlesspa:
+	!l_string_lesspa; jmp l_null
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ！＝＞
+/--------------------------------------
+@l_string_nequala:
+	!l_string_equala; jmp l_null
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ−ＥＱＵＡＬ＞
+/
+/	等しい
+/--------------------------------------
+@l_string_equalb:
+	!check_two_strings;
+seb1:	!get_chars
+	?b(%dl,%cl); jne SETNIL;
+	%eax++; %ebx++;
+	orb %cl,%cl; jne seb1;
+	jmp SETT;
+
+@c_string_equalb:
+	UNMASK1; UNMASK2; jmp seb1;
+
+get_chars:
+	%cl=(%eax);
+	?b($0x40,%cl); jng gc2;		/"A"-1
+	?b($0x5A,%cl); jnl gc2;		/"Z"
+	addb $0x20,%cl;		 	/"a"-"A"
+gc2:	%dl=(%ebx);
+	?b($0x40,%dl); jng gc3;		/"A"-1
+	?b($0x5A,%dl); jnl gc3;		/"Z"
+	addb $0x20,%dl;		 	/"a"-"A"
+gc3:	ret
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ−ＬＥＳＳＰ＞
+/--------------------------------------
+@l_string_lesspb:
+	!check_two_strings;
+slb1:	!get_chars
+	?b(%dl,%cl); jb SETT;
+	%eax++; %ebx++;
+	orb %cl,%cl; jne slb1;
+	jmp SETNIL;
+
+/--------------------------------------
+/　＜ＳＴＲＩＮＧ−ＧＲＥＡＴＥＲＰ＞
+/--------------------------------------
+@l_string_gtpb:
+	!check_two_strings;
+sgb1:	%eax++; %ebx++;
+	!get_chars
+	?b(%dl,%cl); ja SETT;
+	orb %cl,%cl; jne sgb1;
+	jmp SETNIL;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＮＯＴ−ＧＲＥＡＴＥＲＰ＞
+/--------------------------------------
+@l_string_ngtpb:
+	!l_string_gtpb; jmp l_null;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＮＯＴ−ＬＥＳＳＰ＞
+/--------------------------------------
+@l_string_nlesspb:
+	!l_string_lesspb; jmp l_null;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＮＯＴ−ＥＱＵＡＬ＞
+/--------------------------------------
+@l_string_nequalb:
+	!l_string_equalb; jmp l_null;
+
+/--------------------------------------
+/	＜ＳＴＲＳＴＲ＞
+/--------------------------------------
+@l_string_search:
+	PUSH2;
+	!check_two_strings;
+	 PUSH2;
+	  <;
+	  PUSH1;			/検索する文字列
+	  PUSH2;			/検索される文字列
+	  !_strstr;			/文字列検索
+	  >;
+	 POP2;
+	 %eax-=%ebx;			/先頭からの位置
+	POP3;
+	?l($0,%eax); jl SETNIL;		/見つからなかった場合
+	!SETNUM; SET2_1; SET1_3;
+	jmp l_string_byte_position_to_position;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ−ＴＯ−ＬＩＳＴ＞
+/--------------------------------------
+@l_string_to_list:
+	!l_string_to_vector;
+	jmp l_vector_to_list;
+
+/--------------------------------------
+/	＜ＬＩＳＴ−ＴＯ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_list_to_string:
+	!l_vector; jmp l_vector_to_string;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_make_string:
+	PUSH1; !l_natnump; NILP; POP1;
+	je MAKE_STRING_ERR1;
+	NILP2; je ms1;
+	CHARACTERP2; jne MAKE_STRING_ERR2;
+	%edx=$0; jmp ms2;
+
+ms1:	%ebx=$0; %bl=$SPC_CHR;
+ms2:	movw %bx,%dx;			/初期化文字
+	UNMASK1; NUMEXTEND;
+	?b($0,%dh); jne ms21;		/２バイト文字か？
+	?l($NAMELENGTH,%eax); jg TLSE;
+	jmp ms22;
+
+ms21:	PUSH1;
+	 %eax+=%eax; ?l($NAMELENGTH,%eax);
+	POP1; jg TLSE;
+ms22:	temp=%edx;
+	PUSHBUFFER;
+	 %edx=temp;
+	 !init_buffer_pointer;
+	 ?l($0,%eax); je endsub_make_string;
+	 %eax--; SET3_1;		/生成する文字列の長さ
+	 ?b($0,%dh); jne ms31;		/２バイト文字か？
+ms3:	 movb %dl,(%ebx); %ebx++;	/初期化文字が１バイト文字の場合
+	 ?l($0,%ecx); je endsub_make_string;
+	 %ecx--; jmp ms3
+
+ms31:	 movb %dh,(%ebx); %ebx++;	/初期化文字が２バイト文字の場合
+	 movb %dl,(%ebx); %ebx++;
+	 ?l($0,%ecx); je endsub_make_string
+	 %ecx--; jmp ms31
+
+@endsub_make_string:
+	 movb $STR_SEPARATER,(%ebx);	/文字列終端
+	 %ebx++; movb $0,(%ebx);
+	 !read_string;
+	POPBUFFER
+	ret;
+
+@init_buffer_pointer:
+	%ebx=$0; bufferpointer=%ebx;	/バッファポインタの初期化
+	%ebx=$buffer+1;
+	ret;
+
+TLSE:	!SETNUM; jmp TOO_LONG_STRING_ERR;
+
+temp:	dd	0
+
+/--------------------------------------
+/	＜ＣＯＰＹ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_copy_string:
+	STRINGP; jne COPY_STRING_ERR
+@c_copy_string:
+	UNMASK1;
+	PUSHBUFFER;
+	 !init_buffer_pointer;
+cs1:	 movb (%eax),%cl;
+	 ?b($0,%cl); je endsub_make_string;
+	 !insert_esc_code;
+	 jmp cs1;
+
+@insert_esc_code:
+	 ?b($ESC_CHR,%cl); je lms3;	/エスケープ文字の埋め込み
+	 ?b($RET_CHR,%cl); je lms3;
+	 ?b($LF_CHR,%cl); je lms3;
+	 ?b($HT_CHR,%cl); je lms3;
+	 ?b($SPC_CHR,%cl); je lms3;
+	 ?b($LPAR_CHR,%cl); je lms3;
+	 ?b($RPAR_CHR,%cl); je lms3;
+	 ?b($QUOTE_CHR,%cl); je lms3;
+	 ?b($REM_CHR,%cl); je lms3;
+	 ?b($STR_SEPARATER,%cl); je lms3;
+lms2:	 movb %cl,(%ebx);
+	 %eax++; %ebx++; ret;
+
+lms3:	 movb $ESC_CHR,(%ebx);
+	 %ebx++; jmp lms2
+
+/--------------------------------------
+/	＜ＳＴＲＣＡＴ＞
+/--------------------------------------
+@l_strcat:
+	PUSHBUFFER;
+	 !init_buffer_pointer;
+strc0:	 PUSH1; CAR; !strc; POP1;
+	 CDR; NILP; jne strc0;
+	 jmp endsub_make_string;
+
+strc:	STRINGP; jne STRCAT_ERR;
+	UNMASK1;
+scs1:	movb (%eax),%cl;
+	?b($0,%cl); jne scs2;
+	ret;
+
+scs2:	!insert_esc_code; jmp scs1;
+
+/--------------------------------------
+/	＜ＳＵＢＳＴＲＩＮＧ＞
+/--------------------------------------
+	public	c_substring
+@l_substring:
+	STRINGP; jne SUBSTRING_ERR1;
+	FIXNUMP2; je ss1;
+	NILP2; jne SUBSTRING_ERR2;
+	SET2($NUMBERTAG);
+ss1:	FIXNUMP3; je c_substring;
+	NILP3; jne SUBSTRING_ERR2;
+	SET3($-2);
+c_substring:
+	PUSH2; PUSH3; !l_copy_string; POP3; POP2;
+	UNMASK1;
+	UNMASK2; NUMEXTEND2;
+	UNMASK3; NUMEXTEND3; %edx=$0;
+
+ss3:	?l(%edx,%ebx); je ss5;
+	cmpb $0,(%eax); je SETNIL;	/文字列の位置を超えていたらnilを返す
+	PUSH4; PUSH3;
+	 %cl=(%eax);
+	 PUSH1; %al=%cl; !kanjip_al; POP1;
+	 POP3;
+	 ?b($0,%dl);
+	POP4; jne ss4;
+	%eax++;
+ss4:	%eax++; %edx++; jmp ss3;
+
+ss5:	PUSH1;				/文字列開始位置の待避
+	 %ecx++;
+ss6:	 ?l(%edx,%ecx); je ss8;
+	 jl ss9;
+	 cmpb $0,(%eax); je ss8;
+	 PUSH4; PUSH3;
+	  %cl=(%eax);
+	  PUSH1; %al=%cl; !kanjip_al; POP1;
+	  POP3;
+	  ?b($0,%dl);
+	 POP4; jne ss7;
+	 %eax++;
+ss7:	 %eax++; %edx++; jmp ss6;
+
+ss8:	 movb $0,(%eax);
+ss9:	POP1; jmp c_copy_string;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧ−ＴＲＩＭ＞
+/--------------------------------------
+@l_string_trim:
+	STRINGP; jne STRING_TRIM_ERR1;
+	STRINGP2; jne STRING_TRIM_ERR2;
+	PUSH1; !c_string_left_trim; SET2_1; POP1;
+	jmp c_string_right_trim;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＬＥＦＴ−ＴＲＩＭ＞
+/--------------------------------------
+@l_string_left_trim:
+	STRINGP; jne STRING_TRIM_ERR1;
+	STRINGP2; jne STRING_TRIM_ERR2;
+c_string_left_trim:
+	PUSH1; SET1_2; !c_copy_string; SET2_1; POP1;
+	UNMASK1; UNMASK2;
+bagck:	PUSH1;
+bg1:	 movb (%ebx),%cl;		/置き換える文字列から１文字取る
+	 cmpb $0,%cl; je bg3;		/文字列を全て置き換えたか
+bg11:	 ?b((%eax),%cl); je bg2;	/消去文字と一致するか？
+	 %eax++;
+	 cmpb $0,(%eax); je bg3;	/全ての消去文字と比較したか？
+	 jmp bg11;
+
+bg2:	 %ebx++;			/次の文字の置き換えへ
+	POP1; jmp bagck;
+
+bg3:	POP1; SET1_2; jmp c_copy_string;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＲＩＧＨＴ−ＴＲＩＭ＞
+/--------------------------------------
+@l_string_right_trim:
+	STRINGP; jne STRING_TRIM_ERR1;
+	STRINGP2; jne STRING_TRIM_ERR2;
+c_string_right_trim:
+	PUSH1; SET1_2; !c_copy_string; SET2_1; SET4_1; POP1;
+	UNMASK1; UNMASK2;
+sre:	cmpb $0,(%ebx); je bagrck;
+	%ebx++; jmp sre;		/被削除文字列の終端（右端）を探索
+
+bagrck:	PUSH1;
+bgr1:	 %ebx--;
+	 movb (%ebx),%cl;
+	 cmpb $0,%cl; je bgr3;
+bgr11:	 ?b((%eax),%cl); je bgr2;
+	 %eax++;
+	 cmpb $0,(%eax); je bgr3;
+	 jmp bgr11;
+
+bgr2:	POP1; jmp bagrck;
+
+bgr3:	POP1;
+	%ebx++; movb $0,(%ebx);		/終端の修正
+	SET1_4; ret;
+
+/--------------------------------------
+/    ＜ＳＴＲＩＮＧ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+@l_string_upcase:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_upcase;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_string_downcase:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_downcase;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＣＡＰＩＴＡＬＩＺＥ＞
+/--------------------------------------
+@l_string_capitalize:
+	STRINGP; jne NOT_STRING_ERR
+	!c_copy_string; jmp c_nstring_capitalize;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+	public	c_nstring_upcase
+@l_nstring_upcase:
+	STRINGP; jne NOT_STRING_ERR
+c_nstring_upcase:
+	PUSH1;
+	 UNMASK1;
+nsu1:	 movb (%eax),%bl;
+	 ?b($0,%bl); je nsu3;
+	 ?b($0x80,%bl); jbe ngn3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngn2;	/9fh以下
+ngn1:	 ?b($0x0df,%bl); jbe ngn3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngn3;	/fchより上
+ngn2:	 %eax+=$2; jmp nsu1;		/漢字だった場合
+
+ngn3:	 ?b($0x60,%bl); jng nsu2;	/"a"-1
+	 ?b($0x7a,%bl); jg nsu2; 	/"z"
+	 subb $0x20,%bl;		/"a"-"A"
+	 movb %bl,(%eax);
+nsu2:	 %eax++; jmp nsu1;
+
+nsu3:	POP1; ret;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_nstring_downcase:
+	STRINGP; jne NOT_STRING_ERR
+@c_nstring_downcase:
+	PUSH1;
+	 UNMASK1;
+nsd1:	 movb (%eax),%bl;
+	 ?b($0,%bl); je nsd3;
+	 ?b($0x80,%bl); jbe ngd3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngd2;	/9fh以下
+ngd1:	 ?b($0x0df,%bl); jbe ngd3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngd3;	/fchより上
+ngd2:	 %eax+=$2; jmp nsd1;		/漢字だった場合
+
+ngd3:	 ?b($0x40,%bl); jng nsd2;	/"A"-1
+	 ?b($0x5a,%bl); jg nsd2;	/"Z"
+	 addb $0x20,%bl 		/"a"-"A"
+	 movb %bl,(%eax);
+nsd2:	 %eax++; jmp nsd1
+
+nsd3:	POP1; ret;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＣＡＰＩＴＡＬＩＺＥ＞
+/--------------------------------------
+	public	c_nstring_capitalize
+@l_nstring_capitalize:
+	STRINGP; jne NOT_STRING_ERR;
+c_nstring_capitalize:
+	PUSH1;
+	 UNMASK1; %cl=$0;		/フラグ
+nsc1:	 %bl=(%eax);
+	 ?b($0,%bl); je nsd3;
+	 ?b($0x80,%bl); jbe ngc3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngc2;	/9fh以下
+ngc1:	 ?b($0x0df,%bl); jbe ngc3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngc3;	/fchより上
+ngc2:	 %eax+=$2; %cl=$0;		/漢字だった場合
+	 jmp nsc1;
+
+ngc3:	 ?b($0,%cl); jne ngc5;		/前に１バイト英数文字があるとき
+					/大文字にする場合
+ngc4:	 ?b($0x60,%bl); jng nsc21;	/"a"-1
+	 ?b($0x7a,%bl); jg nsc21;	/"z"
+	 %bh=-1(%eax);			/前の文字が数字か？
+	 ?b($0x30,%bh); jng nsc20;	/"0"
+	 ?b($0x39,%bh); jng nsc21;	/"9"
+nsc20:	 subb $0x20,%bl;		/"a"-"A"
+nsc201:	 movb %bl,(%eax);
+nsc21:	 %cl=$1; %eax++; jmp nsc1;	/フラグ
+					/小文字にする場合
+ngc5:	 ?b($0x40,%bl); jng ngc6;	/"A"-1
+	 ?b($0x5a,%bl); jg ngc6;	/"Z"
+	 addb $0x20,%bl; jmp nsc201;	/"a"-"A"
+
+ngc6:	 ?b($0x60,%bl); jng nsc2;	/"a"-1
+	 ?b($0x7a,%bl); jg nsc2;	/"z"
+	 jmp nsc21;
+
+nsc2:	 movb %bl,(%eax); %eax++; %cl=$0;	/フラグ
+	 jmp nsc1;
+
+nsc3:	POP1; ret;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＪＩＳ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+@l_string_jis_upcase:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_jis_upcase;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＪＩＳ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_string_jis_downcase:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_jis_downcase;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＪＩＳ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+@l_nstring_jis_upcase:
+	STRINGP; jne NOT_STRING_ERR
+c_nstring_jis_upcase:
+	PUSH1;
+	 UNMASK1;
+nsju1:	 %bl=(%eax);
+	 ?b($0,%bl); je nsju3;
+	 ?b($0x80,%bl); jbe ngjn3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngjn2;	/9fh以下
+ngjn1:	 ?b($0x0df,%bl); jbe ngjn3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngjn3;	/fchより上
+ngjn2:   %ebx=$CHARACTERTAG; %bh=(%eax); %bl=1(%eax);
+	 PUSH1; SET1_2; !l_jis_upcase; SET2_1; POP1;
+	 movb %bh,(%eax); movb %bl,1(%eax);
+	 %eax+=$2; jmp nsju1;		/漢字だった場合
+
+ngjn3:	 %eax++; jmp nsju1;
+
+nsju3:	POP1; ret;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＪＩＳ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_nstring_jis_downcase:
+	STRINGP; jne NOT_STRING_ERR
+c_nstring_jis_downcase:
+	PUSH1;
+	 UNMASK1;
+nsjdu1:	 %bl=(%eax);
+	 ?b($0,%bl); je nsjdu3;
+	 ?b($0x80,%bl); jbe ngjdn3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngjdn2;	/9fh以下
+ngjdn1:	 ?b($0x0df,%bl); jbe ngjdn3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngjdn3;	/fchより上
+ngjdn2:   %ebx=$CHARACTERTAG; %bh=(%eax); %bl=1(%eax);
+	 PUSH1; SET1_2; !l_jis_downcase; SET2_1; POP1;
+	 movb %bh,(%eax); movb %bl,1(%eax);
+	 %eax+=$2; jmp nsjdu1;		/漢字だった場合
+
+ngjdn3:	 %eax++; jmp nsjdu1;
+
+nsjdu3:	POP1; ret;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＪＩＳ−ＨＩＲＡ−ＴＯ−ＫＡＴＡ＞
+/--------------------------------------
+@l_string_jis_hira_to_kata:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_jis_hira_to_kata;
+
+/--------------------------------------
+/＜ＳＴＲＩＮＧ−ＪＩＳ−ＫＡＴＡ−ＴＯ−ＨＩＲＡ＞
+/--------------------------------------
+@l_string_jis_kata_to_hira:
+	STRINGP; jne NOT_STRING_ERR;
+	!c_copy_string; jmp c_nstring_jis_kata_to_hira;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＪＩＳ−ＨＩＲＡ−ＴＯ−ＫＡＴＡ＞
+/--------------------------------------
+@l_nstring_jis_hira_to_kata:
+	STRINGP; jne NOT_STRING_ERR
+c_nstring_jis_hira_to_kata:
+	PUSH1;
+	 UNMASK1;
+nshtku1: %bl=(%eax);
+	 ?b($0,%bl); je nshtku3;
+	 ?b($0x80,%bl); jbe nghtkn3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe nghtkn2;	/9fh以下
+nghtkn1: ?b($0x0df,%bl); jbe nghtkn3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja nghtkn3;	/fchより上
+nghtkn2: %ebx=$CHARACTERTAG; %bh=(%eax); %bl=1(%eax);
+	 PUSH1; SET1_2; !l_jis_hira_to_kata; SET2_1; POP1;
+	 movb %bh,(%eax); movb %bl,1(%eax);
+	 %eax+=$2; jmp nshtku1;		/漢字だった場合
+
+nghtkn3: %eax++; jmp nshtku1;
+
+nshtku3:POP1; ret;
+
+/--------------------------------------
+/＜ＮＳＴＲＩＮＧ−ＪＩＳ−ＫＡＴＡ−ＴＯ−ＨＩＲＡ＞
+/--------------------------------------
+@l_nstring_jis_kata_to_hira:
+	STRINGP; jne NOT_STRING_ERR
+c_nstring_jis_kata_to_hira:
+	PUSH1;
+	 UNMASK1;
+nskthu1: %bl=(%eax);
+	 ?b($0,%bl); je nskthu3;
+	 ?b($0x80,%bl); jbe ngkthn3;	/80h以下 81h-9fh
+	 ?b($0x9f,%bl); jbe ngkthn2;	/9fh以下
+ngkthn1: ?b($0x0df,%bl); jbe ngkthn3;	/dfh以下e0h-fch
+	 ?b($0x0fch,%bl); ja ngkthn3;	/fchより上
+ngkthn2: %ebx=$CHARACTERTAG; %bh=(%eax); %bl=1(%eax);
+	 PUSH1; SET1_2; !l_jis_kata_to_hira; SET2_1; POP1;
+	 movb %bh,(%eax); movb %bl,1(%eax);
+	 %eax+=$2; jmp nskthu1;		/漢字だった場合
+
+ngkthn3: %eax++; jmp nskthu1;
+
+nskthu3:POP1; ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+CHAR_NOT_INTEGER_ERR:
+	ERR(12001)
+
+@NOT_STRING_ERR:
+	ERR(12002)
+
+MAKE_STRING_ERR1:
+	ERR(12003)
+
+MAKE_STRING_ERR2:
+	ERR(12004)
+
+COPY_STRING_ERR:
+	ERR(12005)
+
+STRING_TRIM_ERR1:
+	ERR(12006)
+
+STRING_TRIM_ERR2:
+	ERR(12007)
+
+SUBSTRING_ERR1:
+	ERR(12008)
+
+SUBSTRING_ERR2:
+	ERR(12009)
+
+SUBSTRING_ERR3:
+	ERR(12010)
+
+STRCAT_ERR:
+	ERR(12011)
+
+NOT_STRING_NOR_SYMBOL_ERR:
+	ERR(12012)
+

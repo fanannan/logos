@@ -1,0 +1,787 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第７章「制御構造」に対応
+/======================================
+
+	.file	"lcont.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/ ＜ＳＹＭＢＯＬ−ＶＡＬＵＥ＞
+/	CLtL2	S7-p.102
+/--------------------------------------
+@l_symbol_value:
+	SYMBOLP; jne SYMBOL_VALUE_ERR;
+	UNMASK1; SET1(VALUE(%eax));
+	UNKP; je SYMBOL_VALUE_ERR2;
+	ret;
+
+/--------------------------------------
+/ ＜ＳＹＭＢＯＬ−ＦＵＮＣＴＩＯＮ＞
+/ ＜ＦＤＥＦＩＮＩＴＩＯＮ＞
+/	CLtL2	S7-p102,103
+/--------------------------------------
+@l_symbol_function:
+	SYMBOLP; jne SYMBOL_FUNCTION_ERR;
+	UNMASK1; SET2(FUNCTION(%eax));
+	UNKP2; je SYMBOL_FUNCTION_ERR2;
+	SET1(FUNCTYPE(%eax));
+	?b($SUBR,%ah); je L3;
+	?b($FSUBR,%ah); jne L2A;
+L3:	xorl $NUMBERTAG,%ebx;
+L2A:	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＳＹＭＢＯＬ−ＡＲＧＳ＞
+/--------------------------------------
+@l_symbol_args:
+	SYMBOLP; jne SETNIL;
+	UNMASK1; SET2(FUNCTION(%eax));
+	UNKP2; je SETNIL;
+	SET1(FUNCTYPE(%eax));
+	?b($SUBR,%ah); je LA3;
+	?b($FSUBR,%ah); jne L2B;
+LA3:	%ebx=$0; %bl=%al;
+	?l($15,%bl); jne sy3;		/多引数関数か
+	%ebx=$0xfffffff;
+sy3:	SET1_2; jmp SETNUM;
+
+L2B:	SET1_2; jmp l_car;
+
+/--------------------------------------
+/	＜ＢＯＵＮＤＰ＞
+/	CLtL2	S7-p103
+/--------------------------------------
+@l_boundp:
+	SYMBOLP; jne SETNIL;
+	UNMASK1; SET1(VALUE(%eax));
+	UNKP; jne SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＦＢＯＵＮＤＰ＞
+/	CLtL2	S7-p103
+/--------------------------------------
+@l_fboundp:
+	SYMBOLP; jne SETNIL;
+	UNMASK1; SET1(FUNCTYPE(%eax));
+	?b($SUBR,%ah); je SETT;
+	?b($FSUBR,%ah); je SETT;
+	?b($EXPR,%ah); je SETT;
+	?b($FEXPR,%ah); je SETT;
+	?b($MACRO,%ah); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/　　＜ＳＰＥＣＩＡＬ−ＦＯＲＭ−Ｐ＞
+/	CLtL2	S7-p103
+/--------------------------------------
+@l_special_form_p:
+	SYMBOLP; jne SETNIL;
+	UNMASK1; SET1(FUNCTYPE(%eax));
+	?b($FSUBR,%ah); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＥＴＱ＞
+/	CLtL2	S7-p104
+/--------------------------------------
+@l_setq:
+	NILP; jne mfs;
+	ret;
+
+mfs:	PUSH1;
+	 CAR; SYMBOLP; jne SET_VALUE_ERR; /はじめの引数はシンボルか
+	 SET2_1;
+	POP1;
+	CDR;
+	SPUSH1;				/引数リストの待避
+	 CAR;				/次の引数を取り出し、
+	 SPUSH2; !l_eval SPOP2;		/評価する
+	 UNMASK2;		 	/シンボルのアドレスを取り出す
+	 cmpl $CONST,FUNCTYPE(%ebx);	/定数であればエラー
+	 je SET_CONST_ERR;
+	 VALUE(%ebx)=%eax; SET2_1;	/値を書き直す 値を待避する
+	SPOP1;
+	CDR;				/次の引数の組を取り出す
+	CELLP; je mfs;
+	SET1_2;				/最後の値を返す
+	ret;
+
+/--------------------------------------
+/	＜ＰＳＥＴＱ＞
+/	CLtL2	S7-p104
+/--------------------------------------
+@l_psetq:
+	NILP; jne L14;
+	ret;
+
+L14:	SET2($BINDMARK1); SPUSH2;	/ここでのタグはダミー
+pmfs:	PUSH1;				/(psetq開始の印)
+	 CAR; SYMBOLP; jne SET_VALUE_ERR;
+	 SPUSH1;			/束縛されるアトムそのもの
+	POP1;
+	CDR;
+	SPUSH1; CAR; !l_eval; SET2_1; SPOP1;
+	SPUSH2;				/束縛する値
+	 CDR; CELLP; je pmfs;
+pset2:	SPOP2;				/束縛する値
+	?l($BINDMARK1,%ebx); jne L17;
+	jmp SETNIL;
+
+L17:	SPOP1;				/束縛されるアトム
+	UNMASK1;
+	cmpl $CONST,FUNCTYPE(%eax); je SET_CONST_ERR;
+	VALUE(%eax)=%ebx;
+	jmp pset2;
+
+/--------------------------------------
+/	＜ＳＥＴ＞
+/	CLtL2	S7-p104
+/
+/	第一引数を評価した結果に
+/	第二引数を評価した値を設定
+/--------------------------------------
+@l_set:	SYMBOLP; jne SET_VALUE_ERR;
+	UNMASK1;
+	cmpl $CONST,FUNCTYPE(%eax); je SET_CONST_ERR;
+	VALUE(%eax)=%ebx; SET1_2;
+	ret;
+
+/--------------------------------------
+/	＜ＳＷＡＰ＞
+/--------------------------------------
+@l_swap:
+	PUSH1; CDR; CAR; SET2_1; POP1;
+	CAR; SYMBOLP; jne SET_VALUE_ERR;
+	SYMBOLP2; jne SET_VALUE_ERR;
+	PUSH1; PUSH2;
+	  UNMASK1; SET1(VALUE(%eax)); SPUSH1;
+	 POP2;
+	 PUSH2;
+	  UNMASK2; SET1(VALUE(%ebx)); SPUSH1;
+	 POP2;
+	POP3; UNMASK3;
+	cmpl $CONST,FUNCTYPE(%ecx); je SET_CONST_ERR;
+	SPOP1; VALUE(%ecx)=%eax;
+	UNMASK2;
+	cmpl $CONST,FUNCTYPE(%ebx); je SET_CONST_ERR;
+	SPOP1; VALUE(%ebx)=%eax;
+	ret;
+
+/--------------------------------------
+/	＜ＭＡＫＵＮＢＯＵＮＤ＞
+/	CLtL2	S7-p105
+/--------------------------------------
+@l_makunbound:
+	SYMBOLP; je mub
+	ret;
+
+mub:	SET2($UNKTAG); jmp l_set;
+
+/--------------------------------------
+/	＜ＦＭＡＫＵＮＢＯＵＮＤ＞
+/	CLtL2	S7-p105
+/--------------------------------------
+@l_fmakunbound:
+	PUSH1; !l_fboundp; NILP; POP1;
+	jne fmub;
+	ret;
+
+fmub:	PUSH1;
+	 UNMASK1; FUNCTYPE(%eax)=$UNKTAG;
+	POP1; ret;
+
+/--------------------------------------
+/	＜ＡＰＰＬＹ＞
+/--------------------------------------
+@l_apply:
+	SPUSH1;
+	 CDR; !l_lista;			/list*で引数リストを再構成
+	 !quotelist; SET2_1;		/引数リストの各要素をすべてquoteする
+	SPOP1;
+	SPUSH2; CAR;			/?
+	SPOP2; !l_cons;			/関数を引数リストの頭に付ける
+	jmp l_eval;			/評価する
+
+quotelist:
+	NILP; jne ql2;
+	ret;
+
+ql2:	SPUSH1;
+	 CAR; !quotebind; SET2_1;
+	SPOP1;
+	SPUSH2;
+	 CDR; !quotelist; SET2_1;
+	SPOP1; jmp l_cons;
+
+quotebind:
+	SPUSH2;
+	 SET2NIL; !l_cons; SET2_1;
+	 SET1(quoteadr); xorl $SYMBOLTAG,%eax;
+	 !l_cons;
+	SPOP2; ret;
+
+/--------------------------------------
+/	＜ＦＵＮＣＡＬＬ＞
+/--------------------------------------
+@l_funcall:
+	jmp l_eval
+
+/--------------------------------------
+/	ＰＲＯＧ汎用ルーチン
+/--------------------------------------
+@l_progloop:
+	SPUSH1; CAR; !l_eval; SPOP1;	/先頭の実行部の取出 評価
+	CDR; NILP; jne l_progloop;	/次の実行部をたぐる
+	ret;				/実行部がなければ最後の評価結果を返す
+
+/--------------------------------------
+/	＜ＰＲＯＧＮ＞
+/	CLtL2	S7-p.126
+/--------------------------------------
+@l_progn:
+	SPUSH1;
+	 CAR; !l_eval; SET2_1;		/先頭の実行部の取出 評価
+	SPOP1;
+	CDR; NILP; jne l_progn;		/次の実行部をたぐる
+	SET1_2;				/実行部がなければ最後の評価結果を返す
+	ret;
+
+/--------------------------------------
+/	＜ＰＲＯＧ１＞
+/	CLtL2	S7-p.127
+/--------------------------------------
+@l_prog1:
+	SPUSH1;
+	 CAR; !l_eval; SET2_1;		/先頭の実行部の取出と評価
+	SPOP1;
+	CDR;				/次の実行部をたぐる
+	SPUSH2; !l_progloop; SPOP1;
+	ret;
+
+/--------------------------------------
+/	＜ＰＲＯＧ２＞
+/	CLtL2	S7-p.127
+/--------------------------------------
+@l_prog2:
+	SPUSH1; CAR; !l_eval; SPOP1;	/先頭の実行部の取出と評価
+	CDR; jmp l_prog1;
+
+/--------------------------------------
+/	＜ＬＥＴ＞
+/	CLtL2	S7-p.128
+/--------------------------------------
+@l_let:	PUSH1; CAR; !bind; POP1;	/局所変数のリスト束縛
+	CDR; !l_progn;			/本体の評価（最後の値を返す）
+	PUSH1; !unbind; POP1;		/局所変数の解放
+	ret;
+
+/--------------------------------------
+/	＜ＩＦ＞
+/	CLtL2	S7-p.135
+/--------------------------------------
+@l_if:	SPUSH1;
+	 CAR; !l_eval;			/条件を取り出す 評価する
+	 NILP; je L25;			/偽なら次の条件をたぐる
+	SPOP1;
+	CDR; CAR; jmp l_eval;		/条件が成立したときの評価
+
+L25:	SPOP1;
+	CDR; CDR; CAR; jmp l_eval;	/条件が成立しなかった場合
+
+/--------------------------------------
+/	＜ＷＨＥＮ＞
+/	CLtL2	S7-p.135
+/--------------------------------------
+@l_when:
+	SPUSH1;
+	 CAR; !l_eval;			/条件を取り出す 評価する
+	 NILP; jne L26;			/偽ならnilを返す
+	%ebp-=$4;			/RECOVSSTK
+	ret;
+
+L26:	SPOP1;
+	CDR; jmp l_progn;		/条件が成立したら，実行部をたぐる
+
+/--------------------------------------
+/	＜ＵＮＬＥＳＳ＞
+/	CLtL2	S7-p.135
+/--------------------------------------
+@l_unless:
+	SPUSH1;
+	 CAR; !l_eval;			/条件を取り出す 評価する
+	 NILP; je L27;			/偽でなければnilを返す
+	%ebp-=$4;			/RECOVSSTK
+	jmp SETNIL;
+
+L27:	SPOP1;
+	CDR; jmp l_progn;		/条件が成立したら，実行部をたぐる
+
+/--------------------------------------
+/	＜ＣＯＮＤ＞
+/	CLtL2	S7-p.136
+/
+/	条件分岐(EXTENDED-COND)
+/--------------------------------------
+@l_cond:
+	SPUSH1;
+	 CAR; CAR; !l_eval;		/先頭の条件を取り出す 評価する
+	 NILP; jne L28;			/偽なら次の条件をたぐる
+	SPOP1
+	CDR; NILP; jne l_cond;		/次の条件がなければnilを返す
+	ret;
+
+L28:	SPOP1;
+	CAR; CDR; jmp l_progn; 		/条件が成立したら，実行部をたぐる
+
+/--------------------------------------
+/	＜ＣＡＳＥ＞
+/	CLtL2	S7-p.137
+/--------------------------------------
+@l_case:
+	SPUSH1;
+	 CAR; !l_eval; SET2_1;		/キーを取り出す 評価する
+	SPOP1;
+ca1:	CDR; NILP; jne L30;
+	ret;
+
+L30:	PUSH1;
+	 CAR; CAR; SYMBOLP; jne L31;	/比較要素は評価されない(複数要素未対応)
+	 PUSH1; UNMASK1; ?l(tadr,%eax); POP1;
+	 je ca2;
+L31:	 PUSH2; !l_eql; POP2;
+	 SYMBOLP; jne L32;
+	 PUSH1; UNMASK1; ?l(tadr,%eax); POP1;
+	 je ca2;
+L32:	POP1; jmp ca1;
+
+ca2:	POP1;				/条件が成立したら，実行部をたぐる
+	CAR; CDR; jmp l_progn
+
+/--------------------------------------
+/	＜ＢＬＯＣＫ＞
+/	CLtL2	S7-p.139
+/
+/ブロックの生成では、ソフトウェアスタッ
+/クの下位の方から、返り先アドレス、ブロ
+/ック名、ブロックを示す印（BINDMARK1）
+/の順に積まれる。
+/--------------------------------------
+@l_block:
+	(%ebp)=%esp; %ebp+=$4;	/返り先の保存
+	PUSH1;
+	 CAR;			/ブロック名（タグ）を取り出す
+block1:	 SYMBOLP; je L33; 	/ここからcatchと同じ
+	 je L33
+	 NILP; jne TAG_ERR;
+L33:	 SPUSH1;		/ブロック名（タグ）の保存
+	 (%ebp)=$BINDMARK1; %ebp+=$4; /ブロック名の保存終了印
+	POP1;
+	CDR; !l_progn;		/本体の評価
+	%ebp-=$12;		/RECOVSSTK*3 印とブロック名と返り先を捨てる
+	ret;
+
+/--------------------------------------
+/	＜ＲＥＴＵＲＮ−ＦＲＯＭ＞
+/	CLtL2	S7-p.139
+/--------------------------------------
+@l_return_from:
+	SPUSH1;
+	 CDR; CAR; !l_eval; SET2_1;	/束縛を元に戻す前に評価する
+	SPOP1;
+	PUSH2; 				/返り値の評価のために待避
+	 CAR;				/タグを取り出す
+retf1:	 SYMBOLP; je rf1;
+L34:	 NILP; je rf1;			/ここからthrowと同じ
+L38:	 jmp TAG_ERR;			/タグがシンボルでない
+LNV:	 %ebp+=$4;			/ダミー
+	 jmp NO_TAG_ERR;		/タグが見つからない
+
+rf0:	 SPOP2;
+
+/pusha
+/ SET1_2; 
+/PRLF; 
+/PREAX
+/ SET1(%ebp); 
+/PRSPC; 
+/PREAX
+/popa
+
+rf1:	 ?l(stackarea,%ebp); jb LNV;	/ソフトウェアスタックを全て見たか？
+L39:	 SPOP2;				/まだタグが見つからない
+
+/pusha
+/ SET1_2; 
+/PRLF; 
+/PREAX
+/ SET1(%ebp); 
+/PRSPC; 
+/PREAX
+/popa
+
+	 ?l($BINDMARK1,%ebx); je rf1x;
+	 ?l($BINDMARK3,%ebx); je runb;	/束縛終了印発見
+	 ?l($BINDMARK5,%ebx); jne rf1;	/脱出抑制印か？(unwind-protect)
+	 jmp rwnd;
+
+rf1x:	 SPOP2;				/ブロック名は同じか？
+
+/pusha
+/ SET1_2; 
+/PRLF; 
+/PREAX
+/ SET1(%ebp); 
+/PRSPC; 
+/PREAX
+/popa
+
+	 ?l(%eax,%ebx); jne rf0;	/アドレスを捨てて探し続ける
+L43:	POP1;				/タグが見つかった場合
+	%ebp-=$4; %esp=(%ebp);		/帰り番地の取得
+	ret;
+
+runb:	PUSH1; !unbind2; POP1; jmp rf1;	/束縛を解放 このまま次に進む
+
+rwnd:	SET3_1;
+	SPOP1;				/cleanup-formを取出し
+	SPUSH3;
+	 SPUSH2;
+	  CDR; !l_progn;		/評価して，脱出を継続
+	 SPOP2;
+	SPOP1; jmp rf1;
+
+/--------------------------------------
+/	＜ＲＥＴＵＲＮ＞
+/	CLtL2	S7-p.140
+/--------------------------------------
+@l_return:
+	SPUSH1;
+	 CAR; !l_eval; SET2_1;		/返り値の評価
+	SPOP1;				/束縛を元に戻す前に評価する
+	PUSH2;
+	 SET1NIL; jmp rf1;		/タグはnil
+
+/--------------------------------------
+/	＜ＬＯＯＰ＞
+/	CLtL2	S7-p.140
+/--------------------------------------
+@l_loop:
+	(%ebp)=%esp;			/返り先の保存
+	4(%ebp)=$NILTAG;		/ブロック名（タグ）はnil
+	8(%ebp)=$BINDMARK1; %ebp+=$12;	/ブロック開始印
+l0:	SPUSH1; !l_progloop; SPOP1;	/本体の評価
+	jmp l0;				/繰り返し
+
+/--------------------------------------
+/	＜ＴＡＧＢＯＤＹ＞
+/--------------------------------------
+@l_tagbody:
+	pushl	%ebp;
+	pushl	goflag;
+tagb0:	PUSH1;
+tagb1:	 PUSH1;
+	  CAR; CELLP; je L44;		/タグならば，スタックに記録
+	  SET2_1;
+	 POP1;
+	 CDR;
+	 SPUSH1;			/ＧＯタグ以降のリスト
+	 SPUSH2;			/ＧＯタグ名
+	 (%ebp)=$BINDMARK4; %ebp+=$4;	/ＧＯタグ開始印
+	 jmp tagb2;
+
+L44:	 POP1;
+	 CDR;
+tagb2:	 NILP; jne tagb1;
+L45:	POP1;
+tagb3:	SPUSH1;
+	 CAR; CELLP; jne L46;		/先頭の実行部の取出 タグでなければ評価
+	 !l_eval;
+L46:	 ?l($NILTAG,goflag); je L47;	/goか？
+	SPOP2;				/スタックを捨てて評価
+	goflag=$NILTAG; jmp tagb3;	/リストを書き換える
+
+L47:	SPOP1;				/goでなければ、値は捨てて
+	CDR; NILP; jne tagb3;		/次の実行部をたぐる
+L48:	popl	goflag;
+	popl	%ebp;			/ブロックの印と名と帰り先を捨てる
+	ret;
+
+/--------------------------------------
+/	＜ＰＲＯＧ＞
+/--------------------------------------
+@l_prog:
+	(%ebp)=%esp;			/返り先の保存
+	4(%ebp)=$NILTAG;		/ブロック名（タグ）はnil
+	8(%ebp)=$BINDMARK1; %ebp+=$12;	/ブロック開始印
+	PUSH1; CAR; !bind; POP1;	/局所変数の束縛
+	CDR; !l_tagbody;
+	PUSH1; !unbind; POP1;		/局所変数の解放
+	%ebp-=$12;			/ブロックの印と名と帰り先を捨てる
+	ret;
+
+/--------------------------------------
+/	＜ＧＯ＞
+/--------------------------------------
+@l_go:	pushl %ebp;
+	 CAR;				/タグを取り出す
+	 SYMBOLP; je go1;
+	 FIXNUMP; je go1;
+L50:	 jmp TAG_ERR;			/タグがシンボルでない
+
+go0:	 SPOP2;
+go1:	 ?l(stackarea,%ebp); jb LNV;	/ソフトウェアスタックを全て見たか？
+G39:	 SPOP2;				/まだタグが見つからない
+	 ?l($BINDMARK3,%ebx); je grunb;	/束縛終了印発見
+	 ?l($BINDMARK5,%ebx); je grwnd;	/脱出抑制印か？(unwind-protect)
+	 ?l($BINDMARK4,%ebx); jne go1;
+	 SPOP2;				/ブロック名は同じか？
+	 ?l(%eax,%ebx); jne go0;	/アドレスを捨てて探し続ける
+L56:	 SPOP1;				/タグが見つかった場合
+	popl %ebp;
+	goflag=$EOFTAG;
+	ret;
+
+grunb:	PUSH1; !unbind2; POP1; jmp go1;	/束縛を解放
+
+grwnd:	SET3_1;
+	SPOP1;				/cleanup-formを取出し
+	SPUSH3;
+	 SPUSH2;
+	  CDR; !l_progn;		/評価して，脱出を継続
+	 SPOP2;
+	SPOP1; jmp go1;
+
+/--------------------------------------
+/	＜ＣＡＴＣＨ＞
+/--------------------------------------
+@l_catch:
+	(%ebp)=%esp; %ebp+=$4;		/返り先の保存
+	SPUSH1;
+	 CAR; !l_eval;			/タグを取り出し評価する
+	SPOP2;
+	PUSH2;
+	jmp block1;
+
+/--------------------------------------
+/　　＜ＵＮＷＩＮＤ−ＰＲＯＴＥＣＴ＞
+/--------------------------------------
+@l_unwind_protect:
+	SPUSH1;				/引数の保存
+	(%ebp)=$BINDMARK5; %ebp+=$4;	/返り先の保存
+	SPUSH1;
+	 CAR; !l_eval;			/protected-formの評価
+	SPOP1;
+	CDR; !l_progn;			/cleanup-formの評価
+	%ebp-=$8;			/脱出抑制印とフォームを捨てる
+	ret;
+
+/--------------------------------------
+/	＜ＴＨＲＯＷ＞
+/--------------------------------------
+@l_throw:
+	SPUSH1;
+	 CDR; CAR; !l_eval; SET2_1;	/束縛を元に戻す前に評価する
+	SPOP1;
+	SPUSH2;				/返り値の評価のために待避
+	 CAR; !l_eval;			/タグを取り出し評価する
+	SPOP2;
+	PUSH2;				/返り値
+	 jmp retf1;
+
+/--------------------------------------
+/	変数の逐次束縛
+/--------------------------------------
+bind:	(%ebp)=$BINDMARK2; %ebp+=$4;	/束縛開始印
+bi1:	PUSH1;
+	 CAR; NILP; jne L57;
+	POP1;
+	jmp bi2;
+
+L57:	 SPUSH1;				/変数名の待避
+	 UNMASK1;
+	 cmpl $CONST,FUNCTYPE(%eax);	/定数か？
+	 je SET_CONST_ERR;
+	 %ebx=VALUE(%eax);		/値の待避と設定
+	 SPUSH2;
+	 VALUE(%eax)=$NILTAG;
+	POP1;
+	CDR; CELLP; je bi1;
+bi2:	(%ebp)=$BINDMARK3; %ebp+=$4;	/束縛終了印
+	ret;
+
+/--------------------------------------
+/	変数の束縛解放
+/--------------------------------------
+unbind:	SPOP2;
+	?l($BINDMARK3,%ebx);		/束縛終了印か？
+	je unbind2;
+	jmp SOFT_STACK_ERR;
+
+L60:	SPOP1; UNMASK1;			/保存されていたシンボル
+	VALUE(%eax)=%ebx;
+unbind2:
+	SPOP2;				/保存されていた値の取得
+	?l($BINDMARK2,%ebx); jne L60;	/束縛開始印か？
+	jmp SETNIL
+
+/--------------------------------------
+/	＜ＭＡＰＣＡＲ＞
+/--------------------------------------
+@l_mapcar:
+	pushl %ebp;
+	 !mapcl;
+mapl23:	 %esi=%ebp; SET2NIL;
+mapl3:	?l(%edi,%esi); je mapl4;
+	%esi-=$4; %eax=(%esi);
+	NILP; je mapl5;
+/	PUSH1;
+	SPUSH1;
+	 pushl %esi;
+	 pushl %edi;
+	  CAR;			/car of mapcar
+	  SPUSH2; !l_kwote; SPOP2;
+	  !l_cons;
+	 popl %edi;		/(o!o;
+	 popl %esi;		/(o!o;
+	 SET2_1;
+/	POP1;
+	SPOP1;
+	CDR; (%esi)=%eax;
+	jmp mapl3;
+
+mapl4:	!mapcreate; jmp mapl23;
+
+mapl5:	 %eax=-8(%edi);
+	popl %ebp;
+	jmp l_reverse;
+
+/ ---  sub routins for mapping ---
+
+	ALIGN
+@mapcl:
+	(%ebp)=$NILTAG; %ebp+=$4;
+	PUSH1;
+	 CAR; SPUSH1
+	POP1;
+	%edi=%ebp;
+mapl1:	CDR;
+	PUSH1;
+	 NILP; je mapl2;
+	 CAR; SPUSH1
+	POP1; jmp mapl1
+
+mapl2:	POP1; ret;
+
+mapcreate:
+	%eax=-4(%esi);
+	pushl %esi; pushl %edi;
+	  !l_cons; !l_eval;
+	popl %edi; popl %esi;
+	%ebx=-8(%esi);
+	pushl %esi; pushl %edi;
+	 !l_cons;
+	popl %edi; popl %esi;
+	-8(%esi)=%eax;
+	ret;
+
+/--------------------------------------
+/	＜ＭＡＰＬＩＳＴ＞
+/--------------------------------------
+@l_maplist:
+	pushl %ebp;
+	 !mapcl;
+maplst23:
+	%esi=%ebp; SET2NIL;
+maplst3:
+	?l(%edi,%esi); je maplst4;
+	%esi-=$4; %eax=(%esi);
+	NILP; je mapl5;
+	SPUSH1; 
+	 pushl %edi;
+	 pushl %esi;
+	  SPUSH2; !l_kwote; SPOP2;
+	  !l_cons;
+	 popl %esi;		/(o!o;
+	 popl %edi;		/(o!o;
+	 SET2_1;
+	SPOP1;
+	CDR; (%esi)=%eax;
+	jmp maplst3;
+
+maplst4:
+	!mapcreate; jmp maplst23;
+
+/--------------------------------------
+/	＜ＭＡＰＣ＞
+/--------------------------------------
+@l_mapc:
+	SPUSH1; !l_mapcar; SPOP1;
+	CDR; jmp l_car;
+
+/--------------------------------------
+/	＜ＭＡＰＬ＞
+/--------------------------------------
+@l_mapl:
+	SPUSH1; !l_maplist; SPOP1;
+	CDR; jmp l_car;
+
+/--------------------------------------
+/	＜ＭＡＰＣＡＮ＞
+/--------------------------------------
+@l_mapcan:
+	!l_mapcar; jmp l_nconc;
+
+/--------------------------------------
+/	＜ＭＡＰＣＯＮ＞
+/--------------------------------------
+@l_mapcon:
+	!l_maplist; jmp l_nconc
+
+/======================================
+/	エラー領域
+/======================================
+SYMBOL_VALUE_ERR:
+	ERR(7001)
+
+SYMBOL_VALUE_ERR2:
+	ERR(7002)
+
+SYMBOL_FUNCTION_ERR:
+	ERR(7003)
+
+SYMBOL_FUNCTION_ERR2:
+	ERR(7004)
+
+SET_VALUE_ERR:
+	ERR(7005)
+
+SET_CONST_ERR:
+	ERR(7006)
+
+TAG_ERR:
+	ERR(7007)
+
+NO_TAG_ERR:
+	ERR(7008)
+
+SOFT_STACK_ERR:
+	ERR(7009)
+
+/======================================
+/	データ領域
+/======================================
+
+	.data				/恐らくはasのバグのために２度必要
+	.data
+
+/--------------------------------------
+/	変数領域
+/--------------------------------------
+goflag:	dd	NILTAG
+

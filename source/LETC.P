@@ -1,0 +1,794 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第２５章「さまざまな機能」
+/　に対応
+/======================================
+
+	.file	"letc.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＴＲＡＣＥ＞
+/--------------------------------------
+@l_trace:
+	NILP; je trace0;
+trace1:	PUSH1;
+	 CAR; !trace2;
+	POP1; CDR; NILP; jne trace1;
+trace0:	SET1(traced_functions_adr);
+	SET1(VALUE(%eax)); ret;
+
+trace2:	PUSH1;
+	 SYMBOLP; jne trace4;
+	 PUSH1;
+	  UNMASK1; %ebx=FUNCTYPE(%eax);	/関数のタイプの取り出し %bh:タイプ、%bl:引数数
+	  ?b($0,%bh);
+	 POP3; je trace4;
+	 SPUSH1; SPUSH2;
+	  SET2(traced_functions_adr);
+	  SPUSH2;
+	   SET1_3; SET2(VALUE(%ebx)); !l_adjoin;
+	  SPOP2;
+	  VALUE(%ebx)=%eax;
+	 SPOP2; SPOP1;
+	 bts $7,%bl;
+trace3:	 FUNCTYPE(%eax)=%ebx;		/トレースのセット
+trace4:	POP1; ret;
+
+/--------------------------------------
+/	＜ＵＮＴＲＡＣＥ＞
+/--------------------------------------
+@l_untrace:
+	NILP; jne untrace1;		/引数がなければ
+	!trace0;			/トレースされている関数全て
+untrace1:
+	PUSH1;
+	 CAR; !untrace2;		/トレースの解除
+	POP1; CDR; NILP; jne untrace1;
+	jmp trace0;			/依然としてトレースされている関数のリストを返す
+
+untrace2:
+	PUSH1;
+	 SYMBOLP; jne trace4;
+	 PUSH1;
+	 UNMASK1; %ebx=FUNCTYPE(%eax);	/関数のタイプの取り出し %bh:タイプ、%bl:引数数
+	  ?b($0,%bh);
+	 POP3; je trace4;
+	 SPUSH1; SPUSH2;
+	  SET2(traced_functions_adr);
+	  SPUSH2;
+	   SET1_3; SET2(VALUE(%ebx)); !l_remove;
+	  SPOP2;
+	  VALUE(%ebx)=%eax;
+	 SPOP2; SPOP1;
+	 btr $7,%bl; jmp trace3;
+
+/--------------------------------------
+/	＜ＴＩＭＥ＞
+/
+/	λογοσ起動後の
+/	内部時計の経過時間
+/	引数がnilでなければリセットし，
+/	システムの内部時間を返す
+/--------------------------------------
+@l_time:
+	NILP; je time2;			/引数がnilでなければ
+	!read_time; starttime=%eax;	/時間を読みだし、基準時間として設定し
+st:	!SETNUM; %ebx=$NUMBERTAG+100;
+	jmp l_div_sub;			/基準時間(システム時間)を返す
+
+time2:	!read_time; !st;		/引数がnilならば時間を読みだし
+	PUSH1;		 		/基準時間との差を求める
+	 %eax=starttime; !st; SET2_1;
+	POP1;
+	jmp l_minus_sub;
+
+@read_time:				/現在の時間を0.01秒単位で返す（#xffffまで）
+	%ah=$0x2c; int DOS;		/時刻の読みだし
+	[%edx;
+	 andl $0x0000ffff,%ecx;
+	 [%ecx;
+	  %eax=$3600; %ebx=$0; %bl=%ch;
+	  mul %ebx; %ebx=%eax;		/(%ch:時)*3600
+	 ]%ecx;
+	 %eax=$60; %ch=$0; mul %ecx;	/(%cl:分)*60
+	 %eax+=%ebx;
+	]%edx: [%edx;
+	 andl $0x0000ffff,%edx
+	 %dl=%dh; %dh=$0; %eax+=%edx;	/(%dh:秒)*100
+	]%edx; [%edx;
+	 %ecx=$100; mul %ecx;
+	]%edx; andl $0x000000ff,%edx;
+	%eax+=%edx;			/(%dl:0.01秒)
+	andl $0x0fffffff,%eax		/上位4ビットを無効にする
+	ret;
+
+/--------------------------------------
+/　＜ＢＥＮＣＨ−ＭＡＲＫ−ＴＥＳＴ＞
+/
+/	第一引数を第二引数回評価したとき
+/	内部時計の経過時間を返す
+/--------------------------------------
+@l_bench_mark_test:
+	NILP2;   jne L2;
+	%ebx=$1; jmp L3;		/第２引数がnilなら１回評価する
+
+L2:	FIXNUMP2; je L3;		/第２引数が整数でなければエラー
+	SET1_2; jmp NOT_INTEGER_ERR;
+
+L3:	UNMASK2; NUMEXTEND2;
+	?l($0,%ebx); jg L4;
+	SET1_2; !SETNUM;
+	jmp BENCH_MARK_ERR;		/第２引数が正の数でなければエラー
+
+L4:	PUSH1; PUSH2
+	 !read_time; !st; SET3_1;	/評価を始める前の時間を取得し、浮動少数点数に変換
+	POP2; POP1;
+	SPUSH3;				/前の時間
+bmt:	 PUSH2; SPUSH1;			/%ebx:繰り返しの回数
+	  !l_eval;			/評価
+	 SPOP1; POP2;
+	 %ebx--; orl %ebx,%ebx; jne bmt;
+	 !read_time; !st;		/評価が終了した時間し、浮動少数点数に変換
+	SPOP2;				/%ebx:開始時の時間
+	jmp l_minus_sub
+
+/--------------------------------------
+/	＜ＤＥＳＣＲＩＢＥ＞
+/
+/	マニュアルの参照
+/--------------------------------------
+@l_describe:
+	SYMBOLP; jne DESCRIBE_ERR;
+	pushl outfile;
+	 UNMASK1; %eax+=$ATOMNAME;
+	 NILP2; jne describe0;		/第２引数は出力ハンドル
+	 %ebx=$NUMBERTAG+CRT;		/コンソールを指定
+describe0:
+	 FIXNUMP2; je describe1; 	/ハンドル番号でなければエラー
+	 SET1_2; jne NOT_HANDLE_NUMBER_ERR;
+describe1:
+	 UNMASK2; outfile=%ebx;		/出力ハンドルの指定
+	 !describe2;
+	popl outfile;
+	ret;
+
+describe2:				/検索シンボル100文字を前提
+	<;				/マニュアル１行1000文字
+	%esp-=$1112;			/1000+100+スタック使用分12
+	-1112(%ebp)=%eax;		/検索文字列
+	%eax=manual_file_adr; %eax=VALUE(%eax);
+	STRINGP; je MA;			/マニュアルファイル名が指定されているか
+	SYMBOLP; je MA;			/マニュアルファイル名が指定されているか
+	%eax=$default_manual_file;	/デフォルトのファイル名を指定
+	jmp MA0;
+
+MA:	!get_filename;
+MA0:	pushl $MAC1;			/オープンモード
+	UNMASK1; PUSH1;			/ファイル名の開始位置
+	!_fopen;			/ファイルオープン
+	?l($0,%eax); jne MA1;		/ファイルが見つかったか？
+	>; %eax=manual_file_adr; %eax=VALUE(%eax);
+	jmp MANUAL_NOT_FOUND_ERR;
+
+MA1:	-4(%ebp)=%eax;			/オープンハンドル
+	%esp+=$8;
+MA2:	pushl -4(%ebp);			/読み込みハンドル
+	pushl $1000;			/マニュアル読み込み文字数
+	leal -1008(%ebp),%eax;		/1000+スタック使用分
+	PUSH1;				/マニュアル取り込みバッファの位置
+	!_fgets;			/１行（1000文字まで）読み込み
+	%esp+=$12;
+	testl %eax,%eax; je MA9;	/ファイルが終わったとき
+	leal -1108(%ebp),%eax;		/1000+100+スタック使用分
+	PUSH1;				/文字列読み込みバッファ位置
+	pushl $MAC3;			/文字列読みとりフォーマット
+	leal -1008(%ebp),%eax;		/読み込んだマニュアル１行分の位置
+	PUSH1;
+	!_sscanf;			/１行の最初にある文字列を取り出す
+	pushl -1112(%ebp);		/1000+100+12
+	leal -1108(%ebp),%eax;		/1000+100+8
+	PUSH1;
+	!_strcmp;			/検索しているシンボルと同じか？
+	%esp+=$20;
+	testl %eax,%eax; jne MA2;	/一致しなければ再び読みに行く
+MA5:	leal -1008(%ebp),%eax;		/1000+8
+	PUSH1;				/マニュアルの内容
+	PRSTR;				/マニュアル表示
+	pushl -4(%ebp);			/読み込みハンドル
+	pushl $1000;			/１行分の文字数
+	leal -1008(%ebp),%eax;		/１行読み込みバッファの位置
+	PUSH1;
+	!_fgets;			/１行読み込み
+	%esp+=$12;			///////%esp+=$16
+MA7:	cmpb $HT_CHR,-1008(%ebp); je MA5; /先頭文字がタブか？
+MA8:	pushl -4(%ebp);			/ハンドル(見つかった場合)
+	!_fclose;			/ファイルのクロース
+	>; jmp SETT;
+
+MA9:	pushl -4(%ebp);			/ハンドル(見つからなかった場合)
+	!_fclose;
+	>; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＯＯＭ＞
+/--------------------------------------
+@l_room:
+	%eax=$textbegin; %ebx=$textend; %ecx=$0; %esi=$ALLOC1a; !pa;
+	%eax=$databegin; %ebx=$dataend; %ecx=$0; %esi=$ALLOC1b; !pa;
+	%eax=gbcarea; %ebx=gbcend; %ecx=$0; %esi=$ALLOC4; !pa;
+	%eax=stackarea; %ebx=stackend; %ecx=$0; %esi=$ALLOC8; !pa;
+	%eax=codearea; %ebx=codeend; %ecx=codetop; %esi=$ALLOC2; !pa;
+	%eax=cellarea; %ebx=cellend; %ecx=freecell; %esi=$ALLOC3; !pa;
+	%eax=symbolarea; %ebx=symbolend; %ecx=symboltop; %esi=$ALLOC6; !pa;
+	%eax=arrayarea; %ebx=arrayend; %ecx=arraytop; %esi=$ALLOC5; !pa;
+	%eax=structarea; %ebx=structend; %ecx=structtop; %esi=$ALLOC52; !pa;
+	%eax=stringarea; %ebx=stringend; %ecx=stringtop; %esi=$ALLOC7; !pa;
+	%eax=floanumarea; %ebx=floanumend; %ecx=floanumtop; %esi=$ALLOC72; !pa;
+	ret;
+
+pa:	PRMSG %esi;			/領域名の表示
+	%dl=$SHARP_CHR; PRSPC; PRCHR;	/#xXXXXXXXX
+	%dl=$0x78; PRCHR;
+	PUSH1;
+	 PREAX;
+	 %dl=$MINUS_CHR; PRCHR;
+	 SET1_2;
+	 %dl=$SHARP_CHR; PRCHR;		/#xXXXXXXXX
+	 %dl=$0x78; PRCHR; PREAX; PRSPC;
+	 %dl=$LPAR_CHR; PRCHR;
+	POP1;
+	?l($0,%ecx); je pa2;
+	PUSH2; PUSH1;
+	 %ebx-=%ecx; SET1_2; !SETNUM;
+	 !c_print;			/残りメモリ量（１０進表示）
+	 %dl=$0x2f; PRCHR;		/"/"
+	POP1; POP2;
+pa2:	PUSH2;
+	 %ebx-=%eax; %eax=%ebx; !SETNUM;
+	 !c_print;			/確保メモリ量（１０進表示）
+	POP2;
+	PRMSG $BYTE; PRLF;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＣＯＤＥＡＲＥＡ＞
+/	コンパイルコード領域の位置を
+/	(開始位置 現在位置 終了位置)として返す
+/--------------------------------------
+@l_codearea:
+	SET1(codeend);
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(codetop);
+	!SETNUM; !l_cons; SET2_1;
+	SET1(codearea);
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＣＯＮＳＡＲＥＡ＞
+/--------------------------------------
+@l_consarea:
+	SET1(cellend);
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(freecell);
+	!SETNUM; !l_cons; SET2_1;
+	SET1(cellarea);
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＡＲＲＡＹＡＲＥＡ＞
+/--------------------------------------
+@l_arrayarea:
+	SET1(arrayend);
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(arraytop);
+	!SETNUM; !l_cons; SET2_1;
+	SET1(arrayarea);
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＳＴＲＵＣＴＡＲＥＡ＞
+/--------------------------------------
+@l_structarea:
+	SET1(structend)
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(structtop)
+	!SETNUM; !l_cons; SET2_1;
+	SET1(structarea)
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＳＹＭＢＯＬＡＲＥＡ＞
+/--------------------------------------
+@l_symbolarea:
+	SET1(symbolend);
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(symboltop);
+	!SETNUM; !l_cons; SET2_1;
+	SET1(symbolarea);
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧＡＲＥＡ＞
+/--------------------------------------
+@l_stringarea:
+	SET1(stringend)
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(stringtop)
+	!SETNUM; !l_cons; SET2_1;
+	SET1(stringarea)
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/	＜ＦＬＯＡＮＵＭＡＲＥＡ＞
+/--------------------------------------
+@l_floanumarea:
+	SET1(floanumend)
+	!SETNUM; SET2NIL; !l_cons; SET2_1;
+	SET1(floanumtop)
+	!SETNUM; !l_cons; SET2_1;
+	SET1(floanumarea)
+	!SETNUM; jmp l_cons;
+
+/--------------------------------------
+/＜ＧＥＴ−ＤＥＣＯＤＥＤ−ＴＩＭＥ＞
+/
+/	現在の　秒，分，時，日，月，年
+/	をリストにして返す
+/--------------------------------------
+@l_get_decoded_time:			/引数があれば時間の設定の機能にすることも考慮
+	%ah=$0x2a; int DOS;
+	PUSH4; 				/年
+	 SET1_3; UNMASK1; xorl $NUMBERTAG,%eax; SET2NIL;
+	 !l_cons; SET2_1;
+	POP4; PUSH4;			/月
+	 %eax=$0; %al=%dh; UNMASK1; xorl $NUMBERTAG,%eax;
+	 !l_cons; SET2_1;
+	POP4; PUSH4;	 		/日
+	 %eax=$0; %al=%dl; UNMASK1; xorl $NUMBERTAG,%eax;
+	 !l_cons; SET2_1;
+	POP4;
+	PUSH2;
+	 %ah=$0x2c; int DOS;
+	POP2;
+	PUSH3; PUSH4;			/時
+	 %eax=$NUMBERTAG; %al=%ch; !l_cons; SET2_1;
+	POP4; POP3;
+	PUSH4;				/分
+	 %eax=$NUMBERTAG; %al=%cl; !l_cons; SET2_1;
+	POP4;
+	%eax=$NUMBERTAG; %al=%dh;	/秒
+	jmp l_cons;
+
+/--------------------------------------
+/	＜ＳＬＥＥＰ＞
+/--------------------------------------
+@l_sleep:
+	FIXNUMPE;
+	UNMASK1; %ecx=$100; mul %ecx;	/秒の単位に換算
+	PUSH1;
+	 !read_time; SET2_1;
+	POP1;
+sleep1:	PUSH1; PUSH2;
+	 !read_time; SET3_1;
+	POP2; POP1;
+	%ecx-=%ebx;
+	?l(%ecx,%eax); jg sleep1;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＩＤＥＮＴＩＴＹ＞
+/--------------------------------------
+@l_identity:
+	ret;				/何もしない
+
+/--------------------------------------
+/	＜ＳＹＳＴＥＭ＞
+/
+/	子プロセスの起動
+/--------------------------------------
+@l_system:
+	STRINGP; jne CHILD_PROCESS_ERR;
+	<; UNMASK1; PUSH1; !_system; >;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＧＥＴＥＮＶ＞
+/--------------------------------------
+@l_getenv:
+	!l_string_upcase;		/文字列を大文字にする
+	<; UNMASK1; PUSH1; !_getenv; >;	/環境の参照
+	?l($0,%eax); je SETNIL;		/見つからなかったらnil
+	PUSHBUFFER;			/見つかれば文字列として読み取る
+	 !init_buffer_pointer;
+getenv_loop:
+	 %cl=(%eax);
+	 ?b($0,%cl); je endsub_make_string;
+	 !insert_esc_code;
+	 jmp getenv_loop;
+
+/--------------------------------------
+/	＜ＰＥＥＫ＞
+/--------------------------------------
+@l_peek:
+	FIXNUMPE;
+	UNMASK1; %ebx=$0; %bl=(%eax);
+	SET1(%ebx); jmp SETNUM;
+
+/--------------------------------------
+/	＜ＤＰＥＥＫ＞
+/--------------------------------------
+@l_dpeek:
+	FIXNUMPE;
+	UNMASK1; %ebx=$0; movw (%eax),%bx;
+	SET1(%ebx); jmp SETNUM;
+
+/--------------------------------------
+/	＜ＰＥＥＫ＊＞
+/--------------------------------------
+@l_peeka:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	shll $28,%eax; %eax+=%ebx;
+	%ecx=$0; %cl=(%eax);
+	SET1(%ecx); jmp SETNUM;
+
+/--------------------------------------
+/	＜ＰＯＫＥ＞
+/--------------------------------------
+@l_poke:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	?l($0x100,%ebx); jnb PE;
+	movb %bl,(%eax); SET1(%ebx);
+	jmp SETNUM;
+
+PE:	SET1_2; jmp POKE_ERR;
+
+/--------------------------------------
+/	＜ＤＰＯＫＥ＞
+/--------------------------------------
+@l_dpoke:
+	FIXNUMP12;
+	UNMASK1; UNMASK2;
+	?l($0x10000,%ebx); jnb PE;
+	movw %bx,(%eax); SET1(%ebx);
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＰＯＫＥ＊＞
+/--------------------------------------
+@l_pokea:
+	FIXNUMP12;
+	UNMASK1; UNMASK2; UNMASK3;
+	?l($0x100,%ecx); jnb PE;
+	shll $28,%eax; %eax+=%ebx;
+	movb %cl,(%eax); SET1(%ecx);
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＰＯＫＥ−ＣＯＤＥ＞
+/--------------------------------------
+@l_poke_code:
+	FIXNUMPE; UNMASK1;
+	?l($0x100,%eax); jnb PE;
+	SET2(codetop);
+	?l(%ebx,codeend); je CODE_OUT_ERR;
+	movb %al,(%ebx);		/コードの現在位置に書き込む
+	SET1(%ebx); incl codetop; 	/コードの位置を１進める
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＡＤＤＲＥＳＳ−ＯＦ＞
+/--------------------------------------
+@l_address_of:
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＣＥＬＬ＞
+/
+/	指定セル領域の内容を返す
+/--------------------------------------
+@l_cell:
+	FIXNUMPE; UNMASK1;
+	?l(cellarea,%eax); jl CE;
+	?l(cellend,%eax); jg CE;
+	pusha;
+	 %eax-=cellarea;
+	 %edx=$0; %ecx=$8;
+	 divl %ecx;
+	 ?l($0,%edx);
+	popa; jne CE;
+	xorl $CELLTAG,%eax; ret;
+
+CE:	!SETNUM; jmp OUT_OF_CELL_ERR;
+
+/--------------------------------------
+/	＜ＳＴＡＣＫ＞
+/--------------------------------------
+@l_stack:
+	%ecx=%ebp;
+	NILP; je stk1;
+	FIXNUMPE; UNMASK1; SET3_1;	/引数があれば、それを初期値にする
+stk1:	?l(%ecx,stackarea); jge SETNIL;
+	%ecx-=$4; SET1((%ecx));
+	PRLF;
+	PRMSG $STACK_HEADER;
+	PUSH1; SET1_3; PREAX; POP1;
+	%dl=$0x3a; PRCHR;
+	PREAX;
+	CELLP; jne stk2;
+	?l(%eax,cellarea); jg stk1;
+stk2:	PUSH1;
+	 shrl $28,%eax; ?l($7,%eax);	/スタックの場合
+	POP1; je stk1;
+	PRSPC; !c_print;
+	jmp stk1;
+
+/--------------------------------------
+/	＜ＩＮＰ＞
+/--------------------------------------
+@l_inp:
+	FIXNUMPE; UNMASK1;
+	SET4_1; %eax=$0; in %dx,%ax;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＯＵＴＰ＞
+/--------------------------------------
+@l_outp:
+	FIXNUMP12;
+	PUSH2;
+	 UNMASK1; UNMASK2;
+	 SET4_1; SET1_2; out %al,%dx;
+	POP1; ret;
+
+/--------------------------------------
+/	＜ＧＥＴＣＨ＞
+/--------------------------------------
+@l_getch:
+	%ah=$7; int DOS;
+	andl $0x000000ff,%eax;
+	jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＫＢＨＩＴ＞
+/--------------------------------------
+@l_kbhit:
+	%al=$0xc; %ah=$0xc; int DOS;	/バッファクリア
+	%ah=$0xb; int DOS;		/キーセンス
+	?b($0,%al); je SETNIL;
+	%dl=$0xff;
+	%al=$0x6; %ah=$0xc; int DOS;	/バッファクリア
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＲＥＤＯ＞
+/--------------------------------------
+@l_redo:
+	%ebx=redo_adr; %ebx=VALUE(%ebx);
+	jmp l_nth;
+
+/--------------------------------------
+/	＜ＰＣＡＴＰ＞
+/--------------------------------------
+@l_pcatp:
+	%ah=$0x30; %ebx=$0x474f3332;	/"GO32"
+	int DOS;
+	?l($0x50434154,%ecx); je SETT;	/"PCAT"
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＰＣ９８０１Ｐ＞
+/--------------------------------------
+@l_pc9801p:
+	%ah=$0x30; %ebx=$0x474f3332;	/"GO32"
+	int DOS;
+	?l($0x50433938,%ecx); je SETT;	/"PC98"
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＦＰＵＰ＞
+/--------------------------------------
+@l_fpup:
+/*	!l_pc9801p; NILP; jne fpup2;	/PC98か
+	!l_pcatp; NILP; je fpup2;	/PCATか
+	int $0x11;			/DOS/Vの場合
+	bt $1,%al; jz SETNIL;		/コプロがあるかどうかのフラグ
+	jmp SETT;
+
+fpup2:
+*/
+	%eax=$ENV_GO32;			/ＦＰＵの設定を環境変数を通じて得る
+	xorl $STRINGTAG,%eax; !l_getenv;
+	NILP; je SETT;			/環境文字列がない
+	SET2_1; %eax=$ENV_EMU; xorl $STRINGTAG,%eax; SET3NIL;
+	!l_match_string;
+	NILP; jne SETNIL;		/環境文字列にエミュレータ指定がある
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＭＥＭＯＲＹ＞
+/--------------------------------------
+@l_memory:
+	!l_pc9801p; NILP; jne SETNIL;	/PC98か
+	!l_pcatp; NILP; je SETNIL;	/PCATか
+	int $0x12;			/DOS/Vの場合
+	jmp SETNUM;			/コンベンショナルメモリの容量を返す
+
+/--------------------------------------
+/＜ＬＩＳＰ−ＩＭＰＬＥＭＥＮＴＡＴＩＯＮ−ＶＥＳＲＩＯＮ＞
+/--------------------------------------
+@l_lisp_implementation_verson:
+	SET1($NUMBERTAG);		/バージョン (0 . 50) 
+	SET2($NUMBERTAG+50);
+	jmp l_cons;
+
+/--------------------------------------
+/	＜ＤＯＳＶＥＲ＞
+/--------------------------------------
+@l_dosver:
+	%ah=$0x30; int DOS;
+	%ebx=$0; %bl=%ah; %ah=$0;
+dv2:	!SETNUM;
+	UNMASK2; xorl $NUMBERTAG,%ebx;
+	jmp l_cons;
+
+/--------------------------------------
+/	＜ＧＯ３２ＶＥＲ＞
+/--------------------------------------
+@l_go32ver:
+	%ah=$0x30; %ebx=$0x474f3332; int DOS;	/"GO32"
+	%ecx=$0; %eax=$0;
+	movw %bx,%cx;			/オリジナルgo32.exeのバージョン
+	%ebx=$0; %bl=%cl; %al=%ch;
+	jmp dv2;
+
+/--------------------------------------
+/	＜ＧＯ３２ＶＥＲ２＞
+/--------------------------------------
+@l_go32ver2:
+	%ah=$0x30; %ebx=$0x474f3332; int DOS;	/"GO32"
+	%eax=$0; %eax=%ebx;		/オリジナルgo32.exeのバージョン
+	shrl $16,%eax; jmp SETNUM;
+
+/======================================
+/	汎用ルーチン
+/======================================
+@SETT:	SET1(tadr); xorl $SYMBOLTAG,%eax;
+	ret;
+
+@SETNIL:
+	SET1NIL; ret;
+
+@__pushbuffer:
+	POP2;				/%ebx:PUSHBUFFERが帰る番地
+	%edx=%esp; %edx-=$4;
+	%esi=$buffend; %edi=%edx;
+	%ecx=$BUFSIZE; %ecx+=%ecx; %ecx+=$NAMELENGTH; %ecx+=$20;
+	std; rep; movsb;
+	%esp=%edi;
+	PUSH4;				/%espの情報を待避
+	PUSH2;				/PUSHBUFFERを呼び出したところに戻る
+	ret;
+
+@__popbuffer:
+	POP2;				/POPBUFFERが帰る番地
+	POP4;				/%espの復帰
+	%edi=$buffend; %esi=%edx;
+	%ecx=$BUFSIZE; %ecx+=%ecx; %ecx+=$NAMELENGTH; %ecx+=$20;
+	std; rep; movsb;
+	%edx+=$4; %esp=%edx;
+	PUSH2;				/POPBUFFERを呼び出したところに帰る
+	ret;
+
+@__numextend:
+	bt $TOPBIT,%eax; jc Lne; 	/負の時
+	ret;
+Lne:	xorl $MASK,%eax; ret;		/符号拡張
+
+@__numextend2:
+	bt $TOPBIT,%ebx; jc Lne2;	/負の時
+	ret;
+Lne2:	xorl $MASK,%ebx; ret;		/符号拡張
+
+@__numextend3:
+	bt $TOPBIT,%ecx; jc Lne3;	/負の時
+	ret;
+Lne3:	xorl $MASK,%ecx; ret;		/符号拡張
+
+/--------------------------------------
+/	ＦＰＵの有無をチェック
+/--------------------------------------
+@check_fpu:
+	?b($1,exist_fpu); ret;		/コプロの判定方法が他にわかれば修正
+
+/--------------------------------------
+/	エラーチェック
+/--------------------------------------
+@__handlep:
+	pusha;
+	 %edx=$0; %eax-=$__iob; %eax-=$4; %ecx=$20;
+	 divl %ecx;
+	 ?l($0,%edx);
+	popa;
+	ret;
+
+@__fixnump_e:
+	FIXNUMP; jne NOT_INTEGER_ERR;
+fr:	ret;
+
+@__fixnump12:
+	FIXNUMP; jne NOT_INTEGER_ERR;
+	FIXNUMP2; je fr;
+	SET1_2; jmp NOT_INTEGER_ERR;
+
+@__floanump12:
+	FLOANUMP; jne NOT_FLOANUM_ERR;
+	FLOANUMP2; je fr;
+	SET1_2; jmp NOT_FLOANUM_ERR;
+
+/					/エラーの出力形式変更用
+/L37:	pushl $NOT_FLOANUM_ERR; jmp L38;
+/L36:	pushl $NOT_INTEGER_ERR;
+/L38:	SPUSH1; SET1_2; SET2NIL; !l_cons; SET2_1; SPOP1;
+/	jmp l_cons;
+
+
+/======================================
+/	エラー処理領域
+/======================================
+CHILD_PROCESS_ERR:
+	ERR(13004)
+
+BENCH_MARK_ERR:
+	ERR(13010)
+
+POKE_ERR:
+	ERR(13008)
+
+CODE_OUT_ERR:
+	ERR(13001)
+
+OUT_OF_CELL_ERR:
+	ERR(13009)
+
+DESCRIBE_ERR:
+	ERR(13005)
+
+MANUAL_ERR:
+	ERR(13006)
+
+MANUAL_NOT_FOUND_ERR:
+	ERR(13007)
+
+/--------------------------------------
+/	定数領域
+/--------------------------------------
+default_manual_file:
+	asz	"logos.doc"		/デフォルトのファイル名
+MAC1:	asz	"rt"			/マニュアル読み込みモード
+MAC3:	asz	"%s"			/文字列読み込みフォーマット
+
+ALLOC1a:	asz	"LOGOS kernel area   :"
+ALLOC1b:	asz	"kernel data area    :"
+ALLOC2:		asz	"compiled code area  :"
+ALLOC3:		asz	"cons area           :"
+ALLOC5:		asz	"array & vector area :"
+ALLOC52:	asz	"struct area         :"
+ALLOC6:		asz	"symbol atom area    :"
+ALLOC7:		asz	"string atom area    :"
+ALLOC72:	asz	"float number area   :"
+ALLOC4:		asz	"work area for gbc   :"
+ALLOC8:		asz	"stack area          :"
+BYTE:		asz	" bytes)"
+
+ENV_GO32:	asz	"GO32"		/環境変数の参照用文字列
+ENV_EMU:	asz	"emu "
+
+STACK_HEADER:	asz	"#x"
+

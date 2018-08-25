@@ -1,0 +1,828 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第５章「プログラムの構造
+/　」、第８章「マクロ」、第２０章「エバ
+/  リュエータ」に対応
+/======================================
+
+	.file	"leval.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/
+/	＜評価処理＞
+/
+/	アトムの場合にはその値を，
+/	セルの場合には式を評価して
+/	得られた値を返す
+/--------------------------------------
+@l_eval:
+	pushw jmpfunc;
+	 pushl FUNCJMP;
+	  !l_eval1;
+	  popl FUNCJMP;
+	 popw jmpfunc;
+	ret;
+
+	ALIGN
+l_eval1:
+	PUSH1;
+	 ?l($NILTAG,%eax); jb eval_cell; /セルの場合
+	 andl $MASK,%eax;
+	 ?l($SYMBOLTAG,%eax);
+	POP1; je eval_sym;		/数値または文字列などの場合そのままを返す
+	ret;
+
+	ALIGN
+eval_sym:
+	UNMASK1; %eax=VALUE(%eax); ret;	/シンボルなら値を取り出して返す
+
+	ALIGN
+eval_cell:
+	POP1;
+	PUSH1;
+	 M_CAR;				/car部分（関数）を取り出す
+	 ?l($NILTAG,%eax); jb eval_lambda;
+eval_cell2:
+	 %ebx=%eax; andl $MASK,%ebx;	/symbolp
+	 ?l($SYMBOLTAG,%ebx); jne LNA;	/シンボルアトムでなければラムダ式かエラー
+	 UNMASK1; %ebx=FUNCTYPE(%eax);	/関数のタイプの取り出し %bh:タイプ、%bl:引数数
+/					/実行回数カウント機能
+/	PUSH1;				/関数の実行回数をその関数の束縛されているシンボルの値とする
+/	 SET1(VALUE(%eax));
+/	 FIXNUMP;
+/	POP1; jne eval_cell3;
+/	 incl VALUE(%eax);
+/eval_cell3:
+/
+	 btr $7,%bl; jc eval_trace;
+	 movb $0xe9,jmpfunc;		/関数呼出ができるようにする
+	 ?b($SUBR,%bh); je eval_subr;	/SUBRか？
+	 ?b($FSUBR,%bh); je eval_fsubr;	/FSUBRか？
+	 ?b($EXPR,%bh); je eval_expr;	/EXPRか？
+	 ?b($FEXPR,%bh); je eval_fexpr;	/FEXPRか？
+	 ?b($MACRO,%bh); je eval_macro;	/MACROか？
+	 SET1(VALUE(%eax));		/高階関数とみなす
+	 ?l($NILTAG,%eax); jb eval_lambda0;
+	 NILP; je LNA;
+	 UNKP; je LNA;
+	 jmp eval_cell2;
+
+eval_lambda0:
+	 SET3_1;			/高階なラムダ式
+	POP1;
+	CDR; SET2_1; SET1_3; !l_cons;
+	PUSH1;
+	jmp eval_lambda;
+
+LNA:	POP1; CAR;			/関数は未定義のシンボル
+	jmp NOT_FUNCTION_ERR;
+
+/--------------------------------------
+/	トレース処理
+/--------------------------------------
+	ALIGN
+eval_trace:
+	SPUSH1; SPUSH2;			/関数名の待避
+	 SET1(trace_depth); !SETNUM; SET2NIL;
+	 PRLF; !l_spaces;
+	 incl trace_depth;
+	 SET1(trace1_adr); SET1(VALUE(%eax));
+	 !l_prin1;			/トレースの表示(評価するＳ式)
+	POP1;
+	PUSH1; SET2NIL; !l_prin1; POP3;	/Ｓ式の表示
+	SPOP2; SPOP1;			/関数名の復帰
+	movb $0xc3,jmpfunc;		/関数呼出を行わないようにする
+	?b($SUBR,%bh); je eval_trace1;	/SUBRか？
+	?b($FSUBR,%bh); je eval_trace1;	/FSUBRか？
+	?b($EXPR,%bh); je eval_trace2;	/EXPRか？
+	?b($FEXPR,%bh); je eval_trace2;	/FEXPRか？
+	?b($MACRO,%bh); je eval_trace2;	/MACROか？
+	jmp LNA
+
+eval_trace1:
+	pushl $eval_trace12;		/Ｓ式評価後の処理継続先
+	?b($FSUBR,%bh); je eval_tracef;	/FSUBRか？
+	PUSH2;				/関数形式の待避
+	pushl $eval_traces2;
+	PUSH3;				/引数
+	jmp eval_subr; 			/引数の評価
+eval_traces2:
+	popl %esi;			/関数形式の復帰
+	andl $0xf,%esi;			/引数の数
+	?l($1,%esi); je print_traced_argments;
+et2:	?l($2,%esi); jne et3;
+	SPUSH1; SPUSH2;
+	  SPUSH1; SET1_2; SET2NIL; !l_cons; SET2_1; SPOP1;
+	  !l_cons; !print_traced_argments;
+	SPOP2; SPOP1; ret;
+et3:	?l($3,%esi); jne et4;
+	SPUSH1; SPUSH2; SPUSH3;
+	 SPUSH1; SPUSH2;
+	  SET1_3; SET2NIL; !l_cons; SET3_1;
+	 SPOP2; SPOP1;
+	SPUSH1;
+	 SET1_2; SET2_3; !l_cons; SET2_1;
+	SPOP1; !l_cons; !print_traced_argments;
+	SPOP3; SPOP2; SPOP1; ret;
+et4:	?l($4,%esi); jne print_traced_argments;
+	SPUSH1; SPUSH2; SPUSH3; SPUSH4;
+	 SPUSH1; SPUSH2; SPUSH3;
+	   SET1_4; SET2NIL; !l_cons; SET4_1;
+	 SPOP3; SPOP2; SPOP1;
+	 SPUSH1; SPUSH2;
+	  SET1_3; SET2_4; !l_cons; SET3_1;
+	 SPOP2; SPOP1;
+	 SPUSH1;
+	  SET1_2; SET2_3; !l_cons; SET2_1;
+	 SPOP1; !l_cons; !print_traced_argments;
+	SPOP4; SPOP3; SPOP2; SPOP1; ret;
+print_traced_argments:	PUSH1;		/トレースの表示(引数)
+	 decl trace_depth;
+	 SET1(trace_depth); !SETNUM; SET2NIL;
+	 incl trace_depth;
+	 PRLF; !l_spaces;
+	 SET1(trace2_adr); SET1(VALUE(%eax)); SET2NIL;
+	 !l_prin1;
+	POP1; SET2NIL; jmp l_prin1;	/引数の表示
+
+eval_trace12:
+	movb $0xe9,jmpfunc;		/関数呼出ができるようにする
+	!jmpfunc; jmp eval_trace3;
+
+eval_tracef:
+	pushl $eval_tracef2;
+	PUSH3;
+	jmp eval_fsubr; 
+eval_tracef2:				/FSUBRの場合には引数を表示しない
+	ret;
+
+eval_trace2:
+	pushl $eval_trace3;		/Ｓ式評価後の処理継続先
+	PUSH3;				/Ｓ式そのもの
+	 ?b($EXPR,%bh); je eval_expr;	/EXPRか？
+	 ?b($FEXPR,%bh); je eval_fexpr;	/FEXPRか？
+	 ?b($MACRO,%bh); je eval_macro;	/MACROか？
+	 jmp LNA
+
+eval_trace3:
+	PUSH1;				/トレースの表示(評価結果)
+	 PUSH1;
+	  decl trace_depth;
+	  SET1(trace_depth); !SETNUM; SET2NIL;
+	  PRLF; !l_spaces;
+	  SET1(trace3_adr); SET1(VALUE(%eax)); SET2NIL;
+	  !l_prin1;
+	 POP1; SET2NIL; !l_prin1;	/評価結果の表示
+	POP1; ret;
+
+@trace_depth:	dd	0		/トレースの深さ
+
+/--------------------------------------
+/　引数を評価しない既定義関数の前処理
+/--------------------------------------
+	ALIGN
+eval_fsubr:
+	 %esi=FUNCTION(%eax);		/関数処理アドレス
+	 %esi-=$FUNCJMPT; FUNCJMP=%esi;
+	POP1;				/%eax:式全体
+	M_CDR; jmp jmpfunc;
+
+/--------------------------------------
+/　引数を評価する既定義関数の前処理
+/--------------------------------------
+	ALIGN
+eval_subr:
+	 %esi=FUNCTION(%eax);		/関数処理アドレス
+	 %esi-=$FUNCJMPT; FUNCJMP=%esi;
+	POP1;				/%eax:式全体
+	M_CDR;
+	?b($1,%bl); je ea1; 		/%bl:引数の数
+	?b($2,%bl); je ea2;
+	?b($3,%bl); je ea3;
+	?b($4,%bl); je ea4;
+	!eval_list; jmp jmpfunc;	/引数が４つ以上の場合
+
+/--------------------------------------
+/　　１引数関数前処理および関数起動
+/--------------------------------------
+	ALIGN
+jmpfuncnil:
+	SET1NIL; jmp jmpfunc;
+
+	ALIGN
+	public	FUNCJMP
+	public	FUNCJMPT
+ea1:	?l($NILTAG,%eax); jnb jmpfuncnil; /引数が１つの関数の場合
+	M_CAR; !l_eval;
+jmpfunc:
+	db 0xe9				/jump far
+FUNCJMP:
+	dd 0				/address of entering a function
+FUNCJMPT:				/label to calc arg of funcjump
+
+/--------------------------------------
+/	２引数関数評価前処理
+/--------------------------------------
+	ALIGN
+ea2:	?l($NILTAG,%eax); jb ea22;	/引数が２つの関数の場合
+	SET1NIL; SET2NIL; jmp jmpfunc;	/引数なければ関数の処理へ
+
+ea22:	(%ebp)=%eax; %ebp+=$4;		/spush1 第１引数
+	M_CAR; !l_eval; SET3_1;		/第１引数
+	%eax=-4(%ebp);			/spop1
+
+ea23:	 M_CDR;				/第２引数 cdr
+	 ?l($NILTAG,%eax); jb ea24;	/car
+	 SET1_3; SET2NIL; %ebp-=$4;	/spop1
+	jmp jmpfunc
+
+ea24:	-4(%ebp)=%ecx;			/spush3 第１引数
+	 M_CAR; !l_eval; SET2_1;
+ea25:	%ebp-=$4; %eax=(%ebp);		/spop1
+	jmp jmpfunc
+
+/--------------------------------------
+/	３引数関数評価前処理
+/--------------------------------------
+	ALIGN				/引数が３つの関数の場合
+ea3:	SPUSH1;
+	 CAR; !l_eval; SET3_1; 		/第１引数
+	SPOP1;
+
+	CDR;				/第２引数
+	SPUSH1; SPUSH3;
+	 CAR; !l_eval; SET2_1;
+	SPOP3; SPOP1;
+
+	CDR;
+	SPUSH3; SPUSH2;			/第３引数
+	 CAR; !l_eval; SET3_1;
+	SPOP2; SPOP1;
+	jmp jmpfunc
+
+/--------------------------------------
+/	４引数関数評価前処理
+/--------------------------------------
+	ALIGN				/引数が４つの関数の場合
+ea4:	SPUSH1;
+	 CAR; !l_eval; SET4_1; 		/第１引数
+	SPOP1;
+
+	CDR;				/第２引数
+	SPUSH1; SPUSH4;
+	 CAR; !l_eval; SET3_1;
+	SPOP4; SPOP1;
+
+	CDR;
+	SPUSH1; SPUSH4; SPUSH3;		/第３引数
+	 CAR; !l_eval; SET2_1;
+	SPOP3; SPOP4; SPOP1;
+
+	CDR;
+	SPUSH4; SPUSH3; SPUSH2;		/第４引数
+	 CAR; !l_eval; SET4_1;
+	SPOP3; SPOP2; SPOP1;
+	jmp jmpfunc
+
+/--------------------------------------
+/	＜引数リストの評価＞
+/
+/	subr,exprの引数リストの要素を
+/	それぞれ評価して返す
+/--------------------------------------
+@eval_list:
+	NILP; jne L22;
+	ret;
+
+	ALIGN
+L22:	(%ebp)=%eax; %ebp+=$4;		/spush1
+	 ?l($NILTAG,%eax); jb L221;	/car
+	 SET2NIL; jmp L222;
+
+L221:	 M_CAR; !l_eval; SET2_1;
+L222:	%eax=-4(%ebp);			/spop1
+	-4(%ebp)=%ebx;			/spush2
+	 ?l($NILTAG,%eax); jb L223;
+	 SET2NIL; jmp L224;
+
+L223:	 M_CDR; !eval_list; SET2_1;
+L224:	%ebp-=$4; %eax=(%ebp);		/spop1
+	jmp l_cons
+
+/--------------------------------------
+/	＜ラムダ式の処理＞		
+/--------------------------------------
+@eval_lambda:
+	POP1;				/%eax:評価する式全体
+
+	SPUSH1; SPUSH3;
+/	 M_CDR2;
+/	 SET1_2;
+	 CDR;
+	 !eval_list; SET2_1;
+	SPOP3; SPOP1;			/実引数リストとその評価
+	CAR;				/関数そのもの
+/	M_CAR;				/関数そのもの
+	CDR;
+	PUSH1; 
+	 CDR; %esi=%eax;
+	 (%ebp)=$BINDMARK2; %ebp+=$4;	/変数退避開始の印と関数名を待避
+	 ?l($NILTAG,%eax);
+	POP1; jnb levex02;		/nilなら変数の値の待避を行わない
+	CAR;				/仮引数リスト
+	pushl %esi;			/%eax:仮引数リスト %ebx:実引数リスト %esi:関数定義
+levex1:	 NILP; je levex02; 		/仮引数がなくなったら評価へ
+	 PUSH1				/%eax:仮引数リスト
+	  ?l($NILTAG,%eax); jb levex2;
+	  SYMBOLP;			/仮引数の最後がドット式になっている場合
+	 POP1; je lrest2;		/残りの全ての実引数を最後のシンボルに束縛
+	 jmp levex02;			/仮引数に全て代入終了
+
+levex2:	
+/	  M_CAR;
+	  CAR;
+	  SYMBOLP; jne BIND_SYMBOL_ERR;	/束縛できない要素のとき
+	  PUSH1; UNMASK1; SET4_1; ?l(andrestadr,%eax); POP1;
+	  je lrest			/&restが指定されている場合
+
+	 SPUSH1;			/仮引数そのもののｐｕｓｈ
+	 %eax=VALUE(%edx);
+	 SPUSH1;			/仮引数の現在値のｐｕｓｈ
+					/値の設定
+	  PUSH2;			/%ebx:実引数リスト
+	   ?l($NILTAG,%ebx); jb lexcl2;
+	   VALUE(%edx)=$NILTAG;	/実引数の個数が足りないときはnil
+	   jmp lexcl3
+
+lexcl2:	   SET1((%ebx));
+/	   SPUSH4;
+/	    !l_eval;
+/	   SPOP4;
+	   VALUE(%edx)=%eax;		/仮引数に実引数を代入
+lexcl3:	  POP1;				/%eax:実引数リスト
+	  CDR; SET2_1;			/%ebx:次の実引数リスト
+	 POP1;				/%eax:仮引数リスト
+	 CDR;				/%eax:次の仮引数リスト
+	 jmp levex1;
+
+lrest:   POP1;
+	 CDR; CAR;
+lrest2:	 SPUSH1;			/仮引数そのもののｐｕｓｈ
+	 UNMASK1; SET4_1; %eax=VALUE(%eax); SPUSH1	/仮引数の現在値のｐｕｓｈ
+	 SET1_2;
+/	 SPUSH4;
+/	  !eval_list;
+/	 SPOP4;				/値の設定
+	 VALUE(%edx)=%eax;		/仮引数に実引数を代入
+levex02:
+	 (%ebp)=$BINDMARK3; %ebp+=$4;	/変数退避終了の印を待避
+	POP1;				/%esi:関数本体リスト
+	!l_progn;	 		/関数の評価 -> %eax
+	PUSH1;				/評価Ｓ式の値プッシュ
+	 %ebp-=$4;	 		/spop2	束縛変数値の復帰と仮引数の読みだし開始
+	 ?l($BINDMARK3,(%ebp)); jne SOFTWARE_STACK_ERR
+levex4:	 %ebp-=$4; %ebx=(%ebp);
+	 ?l($BINDMARK2,%ebx); je levend; /仮引数すべて復帰終了？
+	 %ebp-=$4; %eax=(%ebp);		/spop1
+	 UNMASK1; VALUE(%eax)=%ebx;	/値の復帰
+	 jmp levex4;
+
+levend:	POP1; ret;			/評価Ｓ式の値ポップ
+
+/--------------------------------------
+/	＜ＥＸＰＲ関数の処理＞
+/
+/	引数が定義よりも少ないときは
+/	仮引数にnilが設定される
+/--------------------------------------
+	ALIGN
+eval_expr:
+	POP1;				/%eax:評価する式全体
+	%ebx=4(%eax); (%ebp)=%esp;	/%ebx:実引数リスト(CDR) 返り先(%esp)の保存
+	M_CAR; 4(%ebp)=%eax;		/ブロック名（関数名）の保存
+	8(%ebp)=$BINDMARK1;		/ブロック開始印の保存
+	12(%ebp)=$BINDMARK2;		/変数退避開始の印と関数名を待避
+	%ebp+=$16;
+	SPUSH1;				/実引数の評価
+	 SET1_2; !eval_list; SET2_1;
+	SPOP1;
+	UNMASK1; %ecx=%eax;		/関数アトムのアドレス
+	%eax=FUNCTION(%eax); %esi=%eax;	/関数定義リスト
+	?l($NILTAG,%eax); jnb evex02;
+	M_CAR;				/%eax:仮引数リスト
+	PUSH1;
+	pushl %esi;			/%esi:関数定義リスト
+evex1:					/%ebx:実引数リスト
+	 PUSH1;				/%ecx:関数アトムそのもの
+	  ?l($NILTAG,%eax); jb evex12;	/%eax:仮引数リスト
+	  SYMBOLP;			/仮引数の最後がドット式になっている場合
+	 POP1; je erest5;		/残りの全ての実引数を最後のシンボルに束縛
+	 jmp evex02;			/仮引数に全て代入終了
+
+evex12:	  M_CAR;
+	  SYMBOLP; jne BIND_SYMBOL_ERR;	/束縛できない要素のとき
+	  PUSH1; UNMASK1; SET4_1; ?l(andrestadr,%eax); POP1;
+	  je erest;			/&restが指定されている場合
+
+	  SPUSH1;			/仮引数そのもののｐｕｓｈ
+	  %eax=VALUE(%edx);
+	  SPUSH1			/仮引数の現在値のｐｕｓｈ
+					/値の設定
+	  PUSH2;			/%ebx:実引数リスト
+excl:	   ?l($NILTAG,%ebx); jb excl2;
+	   VALUE(%edx)=$NILTAG; jmp excl3;
+
+excl2:	   SET1((%ebx));
+/	   SPUSH4;
+////	    !l_eval;
+/	   SPOP4;
+	   VALUE(%edx)=%eax;		/仮引数に実引数を代入
+excl3:	  POP1;				/%eax:実引数リスト
+	  ?l($NILTAG,%eax); jb excl4;
+	  SET2NIL; jmp excl5;
+
+excl4:	  SET2(4(%eax));		/%ebx:次の実引数リスト
+excl5:	 POP1;				/%eax:仮引数リスト
+	 ?l($NILTAG,%eax); jb excl6;
+	 SET1NIL; jmp excl7;
+
+excl6:	 SET1(4(%eax));			/%eax:次の仮引数リスト
+excl7:	 jmp evex1;
+
+
+erest:   POP1;
+	 ?l($NILTAG,%eax); jb erest2;	/cdr
+	 SET1NIL; jmp erest5;
+
+erest2:	 SET1(4(%eax));
+	 ?l($NILTAG,%eax); jb erest4;	/car
+	 SET1NIL; jmp erest5;
+
+erest4:	 SET1((%eax));
+
+erest5:	 (%ebp)=%eax;			/spush1 仮引数そのもののｐｕｓｈ
+	 UNMASK1; SET4_1; %eax=VALUE(%eax);
+	 4(%ebp)=%eax;			/spush1
+	 %ebp+=$8;	 		/仮引数の現在値のｐｕｓｈ
+					/値の設定
+	 SET1_2; 
+/	 SPUSH4;
+///	  !eval_list;
+/	 SPOP4;
+	 VALUE(%edx)=%eax;		/仮引数に実引数を代入
+
+evex02:	(%ebp)=$BINDMARK3; %ebp+=$4;	/変数退避終了の印を待避
+	cmpb $0xe9,jmpfunc; jne evtr;
+	POP1;
+	popl %esi;			/ダミー
+	jmp evntr;
+
+evtr:	POP2;				/%esi:関数本体リスト
+	POP1;
+	SPUSH2;
+	 !eval_list; !print_traced_argments;
+	SPOP1;
+
+evntr:	?l($NILTAG,%eax); jb evex21;	/cdr -> %eax:関数定義本体
+	SET1NIL; jmp evprogn
+
+evex21:	M_CDR;
+evprogn:				/暗黙のprogn対応
+	?l($NILTAG,%eax); jb evp0;	/car -> 関数本体
+	SET2NIL; jmp L25;
+
+evp0:	(%ebp)=%eax; %ebp+=$4;		/spush1
+evp:	 M_CAR; !l_eval; SET2_1;	/関数の評価 -> %eax
+evp2:	%ebp-=$4; %eax=(%ebp);		/spop1
+	?l($NILTAG,%eax); jb evp3;	/関数本体リストのCDR
+	SET2NIL; jmp L25;
+
+evp3:	M_CDR;
+	?l($NILTAG,%eax); jb evprogn;	/cellp 関数本体リストが終了か？
+L25:	PUSH2;				/評価Ｓ式の値プッシュ
+	 %ebp-=$4; 			/spop2数値の復帰
+	 ?l($BINDMARK3,(%ebp));		/仮引数の読みだし開始
+	 jne SOFTWARE_STACK_ERR;
+evex4:	 %ebp-=$4; %ebx=(%ebp);
+	 ?l($BINDMARK2,%ebx); je L27;	/仮引数すべて復帰終了？
+	 %ebp-=$4; %eax=(%ebp);		/spop1
+	 UNMASK1; VALUE(%eax)=%ebx;	/値の復帰
+	 jmp evex4;
+
+L27:	 %ebp-=$12;			/spop*3	ブロック印と名と帰り先を捨てる
+	POP1; ret;			/評価Ｓ式の値ポップ
+
+/--------------------------------------
+/
+/	＜ＦＥＸＰＲ関数の処理＞
+/
+/　ＥＸＰＲとは違い，引数は必ず１つのみ
+/--------------------------------------
+	ALIGN
+eval_fexpr:
+	POP1;				/%eax:評価する式全体
+	(%ebp)=%esp; %ebp+=$4;		/返り先の保存
+	PUSH1;				/式全体を一時待避
+	 M_CDR; SET2_1;			/実引数リスト（実引数を評価しない）
+	POP1;				/%eax:評価する式そのもの
+	SPUSH1;				/ブロック名（関数名）の保存
+	M_CAR;				/関数そのもの
+	UNMASK1; SET3_1;		/関数アトムのアドレス
+	%eax=FUNCTION(%eax); %esi=%eax;	/関数定義リスト
+	(%ebp)=$BINDMARK2; %ebp+=$4;	/変数退避開始の印と関数名を待避
+	CAR;				/仮引数リスト(M_CAR?)
+fevex1:					/%ebx:実引数リスト
+					/%ecx:関数アトムそのもの
+					/%esi:関数定義
+	NILP; je fevex02;		/仮引数がなくなったら評価へ
+	pushl %esi;			/%esi:関数定義リスト
+	 PUSH1;				/%eax:仮引数リスト
+	  CAR; 
+	  SYMBOLP; jne BIND_SYMBOL_ERR;	/束縛できない要素のとき
+	  SPUSH1;			/仮引数そのもののｐｕｓｈ
+	  UNMASK1; SET4_1;  		/%edx:仮引数
+	  %eax=VALUE(%eax); SPUSH1;	/仮引数の現在値のｐｕｓｈ
+	  ?l($NILTAG,%ebx); je fexcl;	/実引数の個数が足りないときはnil
+	  SET1NIL;
+fexcl:	  VALUE(%edx)=%ebx;		/仮引数に実引数を代入
+	 POP1;				/%eax:仮引数リスト
+	POP1;
+fevex02:
+	(%ebp)=$BINDMARK3; %ebp+=$4;	/変数退避終了の印を待避
+	cmpb $0xe9,jmpfunc; je fevntr;
+	SPUSH1;
+	 CAR; CAR; !l_eval; !print_traced_argments;
+	SPOP1;
+fevntr:	CDR;				/%esi:関数本体リスト
+fevprogn:				/暗黙のprogn対応
+	SPUSH1;
+	 CAR; !l_eval; SET2_1;		/関数本体の評価
+	SPOP1;
+	CDR; CELLP; je fevprogn;	/関数本体リストが終了か？
+	PUSH2;				/評価Ｓ式の値プッシュ
+					/束縛変数値の復帰
+	 SPOP2;				/仮引数の読みだし開始
+	 ?l($BINDMARK3,%ebx); jne SOFTWARE_STACK_ERR;
+fevex4:	 SPOP2;
+	 ?l($BINDMARK2,%ebx); je fL27;	/仮引数すべて復帰終了？
+	 SPOP1;
+	 UNMASK1; VALUE(%eax)=%ebx;	/値の復帰
+	 jmp fevex4;
+
+fL27:	 %ebp-=$8;			/関数名と帰り先アドレスを捨てる
+	POP1; ret;			/評価Ｓ式の値ポップ
+
+/--------------------------------------
+/	＜ＭＡＣＲＯ関数の処理＞
+/--------------------------------------
+	ALIGN
+eval_macro:
+	POP1;				/%eax:評価する式全体
+	(%ebp)=%esp; %ebp+=$4;		/返り先の保存
+	PUSH1;				/式全体を一時待避
+	 M_CDR; SET2_1;			/実引数リスト
+	POP1;				/%eax:評価する式そのもの
+	M_CAR;				/関数そのもの
+	(%ebp)=%eax;			/spush1	ブロック名（関数名）の保存
+	4(%ebp)=$BINDMARK1;		/ブロック開始印の保存
+	%ebp+=$8;
+	UNMASK1; SET3_1;		/関数アトムのアドレス
+	%eax=FUNCTION(%eax);		/関数定義リスト
+	%esi=%eax;
+	(%ebp)=$BINDMARK2; %ebp+=$4;	/変数退避開始の印と関数名を待避
+	?l($NILTAG,%eax); jnb mevex02;
+	M_CAR;				/仮引数リスト
+	PUSH1;
+	pushl %esi;			/%esi:関数定義リスト
+mevex1:					/%eax:仮引数リスト
+					/%ebx:実引数リスト
+					/%ecx:関数アトムそのもの
+	 NILP; je mevex02;		/仮引数がなくなったら評価へ
+ML23:	  PUSH1;			/%eax:仮引数リスト
+	   ?l($NILTAG,%eax); jb ML233;
+	   SYMBOLP;
+	  POP1; je mrest5;
+	  jmp mevex02;
+
+ML233:	  M_CAR; 
+	  SYMBOLP; jne BIND_SYMBOL_ERR;	/束縛できない要素のとき
+	  PUSH1; UNMASK1; SET4_1; ?l(andrestadr,%eax); POP1;
+	  je mrest;			/&restが指定されている場合
+	  SPUSH1			/仮引数そのもののｐｕｓｈ
+	  %eax=VALUE(%edx); 		/%edx:仮引数
+	  SPUSH1;			/仮引数の現在値のｐｕｓｈ
+	  PUSH2;			/%ebx:実引数リスト
+mexcl:	   ?l($NILTAG,%ebx); jb mexcl2;
+	   VALUE(%edx)=$NILTAG; jmp mexcl3;
+
+mexcl2:	   SET1((%ebx)); VALUE(%edx)=%eax; /仮引数に実引数を代入
+mexcl3:	  POP1;				/%eax:実引数リスト
+	  CDR; SET2_1;			/%ebx:次の実引数リスト
+	 POP1;				/%eax:仮引数リスト
+	 CDR;				/%eax:次の仮引数リスト
+	 jmp mevex1;
+
+mrest:   POP1; CDR; CAR;
+mrest5:	 SPUSH1;			/仮引数そのもののｐｕｓｈ
+	 UNMASK1; SET4_1; %eax=VALUE(%eax);
+	 SPUSH1;			/仮引数の現在値のｐｕｓｈ
+	 VALUE(%edx)=%ebx;		/仮引数に実引数を代入
+mevex02:
+	(%ebp)=$BINDMARK3; %ebp+=$4;	/変数退避終了の印を待避
+	cmpb $0xe9,jmpfunc; jne mevtr;
+	POP1;
+	popl %esi;			/ダミー
+	jmp mevntr;
+
+mevtr:	POP2;				/%esi:関数本体リスト
+	POP1;
+	SPUSH2;
+	 !eval_list; !print_traced_argments;
+	SPOP1;
+
+mevntr:	?l($NILTAG,%eax); jb mevex21;	/cdr -> %eax:関数定義本体
+	SET1NIL; jmp mevex22;
+mevex21:
+	M_CDR;
+mevex22:
+	CAR; !l_eval;
+	PUSH1
+mevex3:	 %ebp-=$4;	 		/束縛変数値の復帰と仮引数の読みだし開始
+	 ?l($BINDMARK3,(%ebp)); jne SOFTWARE_STACK_ERR;
+mevex4:	 %ebp-=$4; %ebx=(%ebp);
+	 ?l($BINDMARK2,%ebx); je ML27;	/仮引数すべて復帰終了？
+	 %ebp-=$4; %eax=(%ebp);		/spop1
+	 UNMASK1; VALUE(%eax)=%ebx;	/値の復帰
+	 jmp mevex4;
+
+ML27:	 %ebp-=$12;		 	/spop*3	ブロック印と名と帰り先を捨てる
+	POP1; jmp l_eval;		/評価Ｓ式の値ポップ
+
+/--------------------------------------
+/	＜ＤＥＦＵＮ＞
+/	CLtL2	S5-p.72
+/	関数定義（EXPR）
+/
+/	高速化のため，lambda式の形を
+/	取らず，引数と関数本体のみが
+/	アトムの関数ポインタに設定される
+/--------------------------------------
+@l_defun:
+	%bh=$EXPR;			/関数のタイプ
+define:	PUSH1;
+	 CAR; SYMBOLP; jne DEF_ERR;	/関数名がシンボルアトムでないとき
+def2:	 UNMASK1; %esi=%eax;		/関数となるシンボルアトムのアドレス %esiに待避
+	POP1;
+	PUSH1;
+	 CDR;				/複数の本体
+	 %ecx=FUNCTYPE(%esi);		/関数のタイプ
+	 andl $0x0f000000,%ecx;		/変数としての型を保持
+	 FUNCTYPE(%esi)=%ecx;
+	 orl FUNCTYPE(%esi),%ebx;	/関数のタイプ
+	 FUNCTYPE(%esi)=%ebx;
+	 FUNCTION(%esi)=%eax;		/関数のポインタ
+	POP1; jmp l_car;		/関数名を返す
+
+/--------------------------------------
+/	＜ＤＦ＞
+/--------------------------------------
+@l_df:	%bh=$FEXPR; jmp define
+
+/--------------------------------------
+/	＜ＤＥＦＭＡＣＲＯ＞
+/	CLtL2	S8-p169
+/--------------------------------------
+@l_dm:	%bh=$MACRO; jmp define
+
+/--------------------------------------
+/	＜ＭＯＶＤ＞
+/--------------------------------------
+@l_movd:
+	SYMBOLP; jne MOVD_ERR1;
+	SYMBOLP2; jne ME2;
+	PUSH2;
+	 UNMASK1; UNMASK2;
+	 %ecx=FUNCTYPE(%eax); FUNCTYPE(%ebx)=%ecx;
+	 %ecx=FUNCTION(%eax); FUNCTION(%ebx)=%ecx;
+	POP1; ret;
+
+ME2:	SET1_2; jmp MOVD_ERR2;
+
+/--------------------------------------
+/	＜ＤＥＦＶＡＲ＞
+/	CLtL2	S4-p73
+/--------------------------------------
+@l_defvar:
+	PUSH1;
+	 CAR; SYMBOLP; jne DEFVAR_ERR1;
+	 UNMASK1; %eax=FUNCTYPE(%eax);
+	 andl $0x0f000000,%eax;
+	 ?l($CONST,%eax); je DE2;
+	POP1;
+	PUSH1; !l_setq; POP1;
+	PUSH1;
+	 CAR; UNMASK1; FUNCTYPE(%eax)=$SPECIAL;
+	POP1;
+	ret;
+
+DE2:	POP1; CAR; jmp DEFVAR_ERR2;
+
+/--------------------------------------
+/	＜ＤＥＦＰＡＲＡＭＥＴＥＲ＞
+/	CLtL2	S4-p73
+/--------------------------------------
+@l_defparameter:
+	PUSH1;
+	 CAR; SYMBOLP; jne DEFPARAMETER_ERR;
+	 UNMASK1; %eax=FUNCTYPE(%eax);
+	 andl $0x0f000000,%eax;
+	 ?l($CONST,%eax); je DCE2;
+/	 ?l($SPECIAL,%eax);		/スペシャル変数はエラーにしない
+	POP1;
+	jmp l_setq;
+
+/--------------------------------------
+/	＜ＤＥＦＣＯＮＳＴＡＮＴ＞
+/	CLtL2	S4-p73
+/--------------------------------------
+@l_defconst:
+	PUSH1;
+	 CAR; SYMBOLP; jne DEFCONST_ERR1;
+	 UNMASK1; %eax=FUNCTYPE(%eax);
+	 andl $0x0f000000,%eax;
+	 ?l($CONST,%eax); je DCE2;
+	 ?l($SPECIAL,%eax);
+	POP1; je DCE3;
+	PUSH1; !l_setq; POP1;
+	PUSH1;
+	 CAR; UNMASK1; FUNCTYPE(%eax)=$CONST;
+	POP1; ret;
+
+DCE2:	POP1; CAR; jmp DEFCONST_ERR2;
+DCE3:	CAR; jmp DEFCONST_ERR3;
+
+/--------------------------------------
+/	＜ＣＯＮＳＴＡＮＴＰ＞
+/	CLtL2	S20-p435
+/	定数になったシンボルと自己評価
+/	フォーム（セル以外）ならtを返す
+/--------------------------------------
+@l_constantp:
+	NILP; je SETT;
+	SYMBOLP; jne constantp1;
+	UNMASK1; %eax=FUNCTYPE(%eax);
+	andl $0x0f000000,%eax;
+	?l($CONST,%eax); je SETT;
+	jmp SETNIL;
+
+constantp1:
+	CELLP; jne SETT;
+	jmp SETNIL;
+
+/======================================
+/	エラー処理領域
+/======================================
+NOT_FUNCTION_ERR:
+	ERR(5010)
+
+DEF_ERR:
+	ERR(5001)
+
+MOVD_ERR1:
+	ERR(5013)
+
+MOVD_ERR2:
+	ERR(5014)
+
+DEFVAR_ERR1:
+	ERR(5002)
+
+DEFVAR_ERR2:
+	ERR(5003)
+
+DEFCONST_ERR1:
+	ERR(5004)
+
+DEFCONST_ERR2:
+	ERR(5005)
+
+DEFCONST_ERR3:
+	ERR(5006)
+
+DEFPARAMETER_ERR:
+	ERR(5007)
+
+BIND_SYMBOL_ERR:
+	ERR(5011)
+
+SOFTWARE_STACK_ERR:
+	ERR(5012)
+

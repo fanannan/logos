@@ -1,0 +1,468 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第６章「述語」に対応
+/======================================
+
+	.file		"lpred.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＴＹＰＥＰ＞
+/	CLtL2	S6-p.83(!)
+/--------------------------------------
+@l_typep:
+	PUSH2; !l_type_of; POP2; jmp l_eq;
+
+/--------------------------------------
+/	＜ＮＵＬＬ，ＮＯＴ＞
+/	CLtL2	S6-p85
+/	CLtL2	S6-p95
+/
+/	%eaxがnilであれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_null:
+	NILP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＹＭＢＯＬＰ＞
+/	CLtL2	S6-p86
+/
+/	%eaxがシンボルアトムであれば，
+/	tを、違っていれば、nilを返す
+/--------------------------------------
+@l_symbolp:
+	SYMBOLP; je SETT;
+	NILP; je SETT; 			/nilはt
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＡＴＯＭ＞
+/	CLtL2	S6-p86
+/
+/	%eaxがアトムであれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_atom:
+	CELLP; je SETNIL;
+	ARRAYP; je SETNIL;
+	STRUCTP; je SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＯＮＳＰ＞
+/	CLtL2	S6-p86
+/
+/	%eaxがコンスであれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_consp:
+	CELLP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＬＩＳＴＰ＞
+/	CLtL2	S6-p86
+/
+/	%eaxがコンスか空リストであれば，
+/	tを，違っていれば，nilを返す
+/--------------------------------------
+@l_listp:
+	CELLP; je SETT;
+	NILP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＮＬＩＳＴＰ＞
+/--------------------------------------
+@l_nlistp:
+	CELLP; je SETNIL;
+	NILP; je SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＮＵＭＢＥＲＰ＞
+/	CLtL2	S6-p86
+/
+/	%eaxが数値であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_numberp:
+	FIXNUMP; je SETT;
+	FLOANUMP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＩＮＴＥＧＥＲＰ＞
+/	CLtL2	S6-p86
+/
+/	%eaxが整数であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_integerp:
+	FIXNUMP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＡＴＩＯＮＡＬＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが有理数であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_rationalp:
+	jmp l_integerp;
+
+/--------------------------------------
+/	＜ＦＬＯＡＴＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが浮動小数点数であれば，
+/	tを，違っていれば，nilを返す
+/--------------------------------------
+@l_floatp:
+	FLOANUMP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＲＥＡＬＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが実数であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_realp:				/浮動小数点数もｔ
+	jmp l_numberp;
+
+/--------------------------------------
+/	＜ＣＯＭＰＬＥＸＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが複素数であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_complexp:
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＣＨＡＲＡＣＴＥＲＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが文字であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_characterp:
+	CHARACTERP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＴＲＩＮＧＰ＞
+/	CLtL2	S6-p87
+/
+/	%eaxが文字列であれば，tを
+/	違っていれば，nilを返す
+/--------------------------------------
+@l_stringp:
+	STRINGP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＢＩＴ−ＶＥＣＴＯＲＰ＞
+/	CLtL2	S6-p87
+/--------------------------------------
+@l_bit_vector_p:
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＶＥＣＴＯＲＰ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_vectorp:
+	ARRAYP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/　＜ＳＩＮＧＬＥ−ＶＥＣＴＯＲ−Ｐ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_single_vector_p:
+	jmp l_vectorp
+
+/--------------------------------------
+/　＜ＳＩＮＧＬＥ−ＳＴＲＩＮＧ−Ｐ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_single_string_p:
+	jmp l_stringp;
+
+/--------------------------------------
+/＜ＳＩＮＧＬＥ−ＢＩＴ−ＶＥＣＴＯＲ−Ｐ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_single_bit_vector_p:
+	jmp l_bit_vector_p;
+
+/--------------------------------------
+/	＜ＡＲＲＡＹＰ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_arrayp:
+	ARRAYP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＴＲＵＣＴＰ＞
+/--------------------------------------
+@l_structp:
+	STRUCTP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＰＡＣＫＡＧＥＰ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_packagep:
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＴＲＥＡＭＰ＞
+/--------------------------------------
+@l_streamp:
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＯＢＪＥＣＴＰ＞
+/--------------------------------------
+@l_objectp:
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＦＵＮＣＴＩＯＮＰ＞
+/	CLtL2	S6-p88
+/--------------------------------------
+@l_functionp:
+	SYMBOLP; jne fp2;
+	PUSH1;
+	 UNMASK1; SET2(FUNCTYPE(%eax));
+	POP1;
+	?b($SUBR,%bh); je SETT;
+	?b($EXPR,%bh); je SETT;
+	jmp SETNIL;
+
+/	?b($FSUBR,%bh); je SETT;
+/	?b($FEXPR,%bh); je SETT;
+/	?b($MACRO,%bh); je SETT;
+
+fp2:	CELLP; jne SETNIL;
+	CAR; SYMBOLP; jne SETNIL;
+	UNMASK1; ?l(lambda_adr,%eax); jne SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＳＵＢＲＰ＞
+/--------------------------------------
+@l_subrp:
+	SYMBOLP; jne SETNIL;
+	UNMASK1; SET2(FUNCTYPE(%eax));
+	?b($SUBR,%bh); je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/＜ＣＯＭＰＩＬＥＤ−ＦＵＮＣＴＩＯＮ−Ｐ＞
+/	CLtL2	S6-p89
+/--------------------------------------
+@l_compiled_function_p:
+	SYMBOLP; jne SETNIL;		/シンボルか？
+	PUSH1;
+	 !l_functionp; NILP;	 	/関数か？
+	POP1; je SETNIL;
+	UNMASK1; %eax=FUNCTION(%eax);	/処理アドレス読みだし
+	?l(codearea,%eax); jb SETNIL;	/アドレスがcodeareaより後か？
+	?l(codeend,%eax); ja SETNIL;	/アドレスがcodeendより前か？
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＬＡＴＥＲＰ＞
+/
+/	シンボルの登録順の比較
+/--------------------------------------
+@l_laterp:
+	SYMBOLP; jne LATERP_ERR;
+	SYMBOLP2; jne LE;
+	?l(%ebx,%eax); jna SETNIL;
+	jmp SETT;
+
+LE:	SET1_2; jmp LATERP_ERR;
+
+/--------------------------------------
+/	＜ＥＱ＞
+/	CLtL2	S6-p89
+/
+/	%eaxと%ebxを比較して，ポインタが
+/	同じものであれば，t，
+/	違っていればnilを返す
+/	同じ整数はt，複素数はnil
+/--------------------------------------
+@l_eq:	?l(%eax,%ebx); je SETT;
+	jmp SETNIL;
+
+@l_neq:	?l(%eax,%ebx); je SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＥＱＬ＞
+/	CLtL2	S6-p91
+/
+/	%eaxと%ebxを比較して，ポインタが
+/	同じものであれば，t，
+/	違っていればnilを返す
+/	同じ整数も複素数もｔ
+/	文字列はnil
+/--------------------------------------
+@l_eql:	?l(%eax,%ebx); je SETT;
+	FLOANUMP; je l_feq;
+	jmp SETNIL;
+
+@l_neql:
+	!l_eql;
+neql:	NILP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＥＱＵＡＬ＞
+/	CLtL2	S6-p92
+/
+/	%eaxと%ebxを比較して，
+/	同じものであれば，t，
+/	違っていればnilを返す
+/--------------------------------------
+@l_equal:
+	?l(%ebx,%eax); je SETT;		/シンボル、整数、文字
+	STRINGP; je aw1;
+	FLOANUMP; je l_feq;
+	ARRAYP; je l_vector_equal;
+	STRUCTP; je l_struct_equal;
+	CELLP; jne SETNIL;
+	CELLP2; jne SETNIL;
+L11:	PUSH2; PUSH1;
+	  CAR;
+	  PUSH1;
+	   SET1_2; CAR; SET2_1;
+	  POP1;
+	  !l_equal; NILP; jne L12;
+	POP3; POP3;
+	ret;
+
+L12:	 POP1;
+	 CDR;
+	POP2;
+	PUSH1;
+	 SET1_2; CDR; SET2_1;
+	POP1;
+	jmp l_equal;
+
+aw1:	STRINGP2; je c_string_equala;
+	jmp SETNIL;
+
+@l_nequal:
+	!l_equal; NILP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＥＱＵＡＬＰ＞
+/	CLtL2	S6-p93
+/--------------------------------------
+@l_equalp:
+	?l(%ebx,%eax); je SETT;
+	STRINGP; je eqp1;
+	CHARACTERP; je eqp2;
+	FLOANUMP; je l_feq;
+	ARRAYP; je l_vector_equal;
+	STRUCTP; je l_struct_equal;
+	CELLP; jne SETNIL;
+L11P:	PUSH2; PUSH1;
+	  CAR;
+	  PUSH1;
+	   SET1_2; CAR; SET2_1;
+	  POP1;
+	  !l_equalp; NILP; jne L12P;
+	POP3; POP3;
+	ret;
+
+L12P:	 POP1;
+	 CDR;
+	POP2;
+	PUSH1;
+	 SET1_2; CDR; SET2_1;
+	POP1;
+	jmp l_equalp;
+
+eqp1:	STRINGP2; je c_string_equalb;
+	jmp SETNIL;
+
+eqp2:	CHARACTERP2;
+	PUSH1;
+	 SET1_2; !l_char_downcase; SET2_1;
+	POP1;
+	PUSH2;
+	 !l_char_downcase;
+	POP2;
+	?l(%ebx,%eax); je SETT;
+	jmp SETNIL;
+
+@l_nequalp:
+	!l_equalp; NILP; je SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＡＮＤ＞
+/	CLtL2	S6-p95
+/
+/	論理演算子
+/--------------------------------------
+@l_and:	NILP; je SETT;
+fa:	SPUSH1;
+	 CAR;				/先頭の条件を取り出す
+	 !l_eval; NILP; jne L31;	/偽ならそのまま偽を返す
+	SPOP2;				/ダミー
+	ret;
+
+L31:	 SET2_1;
+	SPOP1;
+	CDR; NILP; jne fa;
+	SET1_2; ret;
+
+/--------------------------------------
+/	＜ＯＲ＞
+/	CLtL2	S6-p96
+/
+/	論理演算子
+/--------------------------------------
+@l_or:	NILP; jne fo;
+	ret;
+
+fo:	SPUSH1;
+	 CAR;				/先頭の条件を取り出す
+	 !l_eval; NILP; je L34;		/偽でなければそのまま偽を返す
+	SPOP2;				/ダミー
+	ret;
+
+L34:	 SET2_1;
+	SPOP1;
+	CDR; NILP; jne fo;
+	SET1_2; ret;
+
+/======================================
+/	エラールーチン
+/======================================
+LATERP_ERR:
+	ERR(6003)
+

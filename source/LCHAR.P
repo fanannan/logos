@@ -1,0 +1,699 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１３章「文字」に対応
+/======================================
+
+	.file		"lchar.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/　＜ＳＴＡＮＤＡＲＤ−ＣＨＡＲ−Ｐ＞
+/
+/標準文字（標準アスキー,改行，空白）か
+/--------------------------------------
+@l_standard_char_p:
+	GET_CHAR;
+	?l($LF_CHR,%eax); je SETT;	/改行
+	?l($0x20,%eax); jl SETNIL;	/空白は t
+scp:	?l($0x7e,%eax); jg SETNIL;	/"~"(標準アスキーの最後の文字)
+	jmp SETT;
+
+/--------------------------------------
+/　＜ＧＲＡＰＨＩＣ−ＣＨＡＲ−Ｐ＞
+/
+/　　印字可能文字（標準アスキー）か
+/--------------------------------------
+@l_graphil_char_p:			/漢字は nil
+	GET_CHAR;
+	?l($0x20,%eax); jle SETNIL;	/空白は nil
+	jmp scp;			/standard-char-pから改行と空白を取った処理
+
+/--------------------------------------
+/　＜ＡＬＰＨＡ−ＣＨＡＲ−Ｐ＞
+/
+/	アルファベットか
+/--------------------------------------
+@l_alpha_char_p:
+	GET_CHAR;
+alphap:	?l($0x7a,%eax); jg SETNIL;	/z
+	?l($0x41,%eax); jl SETNIL;	/A
+	?l($0x5a,%eax); jng SETT;	/Z
+	?l($0x61,%eax); jl SETNIL;	/a
+	jmp SETT;
+
+/--------------------------------------
+/　＜ＵＰＰＥＲ−ＣＡＳＥ−Ｐ＞
+/
+/	アルファベット大文字か
+/--------------------------------------
+@l_upper_case_p:
+	GET_CHAR;
+	?l($0x41,%eax); jl SETNIL;	/A
+	?l($0x5a,%eax); jg SETNIL;	/Z
+	jmp SETT;
+
+/--------------------------------------
+/　＜ＬＯＷＥＲ−ＣＡＳＥ−Ｐ＞
+/
+/	アルファベット小文字か
+/--------------------------------------
+@l_lower_case_p:
+	GET_CHAR;
+	?l($0x61,%eax); jl SETNIL;	/a
+	?l($0x7a,%eax); jg SETNIL;	/z
+	jmp SETT;
+
+/--------------------------------------
+/　＜ＤＩＧＩＴ−ＣＨＡＲ−Ｐ＞
+/
+/	数字か
+/--------------------------------------
+@l_digit_char_p:
+	GET_CHAR;
+	?l($0x7a,%eax); jg SETNIL;	/zより大きいコードのものは数字ではない
+	NILP2; je dcp1;
+	FIXNUMP2; jne DIGIT_CHAR_P_ERR;	/基数が数字以外で指定されていればエラー	
+	jmp dcp2;
+
+dcp1:	SET3($10); jmp dcp3;		/第２引数で基数指定がなければ10進数
+
+dcp2:	UNMASK2; SET3_2;
+dcp3:	!check_radix2;			/%clを基数としてチェック
+	?b($1,%ch); je SETNIL;		/基数の範囲内でないとき
+	%eax-=$0x30;			/数値への変換
+	?l($10,%eax); jb SETNUM;	/10以下の場合
+	%eax-=$7;			/アルファベットへの変換
+	?l($MAXBASE,%eax); jb SETNUM;	/大文字の場合
+	%eax-=$0x20; jmp SETNUM;	/小文字の場合
+
+check_radix2:				/%al:文字が%cl:基数の範囲にあるか
+	?b($0x3a,%al); jnl cr3;		/"9"+1
+	%dh=%al; %dh-=$0x30;		/0
+	?b(%cl,%dh); jb cr6;
+cr3:	?b($0x61,%al); jnge cr4;	/a 小文字をさきに調べた方が
+	%dh=%al; %dh-=$87;		/"a"-10	簡単にできる
+	?b(%cl,%dh); jl cr6
+cr4:	?b($0x41,%al); jnge cr5;	/A
+	%dh=%al; %dh-=$55;		/"A"-10
+	?b(%cl,%dh); jnl cr5;
+cr6:	%ch=$0; ret;			/基数の範囲内なら ch=$0
+
+cr5:	%ch=$1; ret;			/基数の範囲内でなければ ch=$1
+
+/--------------------------------------
+/　＜ＡＬＰＨＡＮＵＭＥＲＩＣＰ＞
+/
+/	アルファベットまたは数字か
+/--------------------------------------
+@l_alphanumericp:
+	GET_CHAR;
+	?l($0x30,%eax); jl SETNIL;	/0
+	?l($0x03a,%eax); jl SETT;	/"9"+1
+	jmp alphap
+
+/--------------------------------------
+/	＜ＫＡＮＡＰ＞
+/--------------------------------------
+@l_kanap:
+	GET_CHAR;
+	?l($0xa6,%eax); jl SETNIL;	/"ヲ"
+	?l($0xdf,%eax); jg SETNIL;	/"°"
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＫＩＧＯＵＰ＞
+/--------------------------------------
+@l_kigoup:
+	GET_CHAR;
+	?l($0xa1,%eax); jl SETNIL;	/"。[],・"
+	?l($0xa5,%eax); jg SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ＝＞
+/
+/	等しい
+/--------------------------------------
+@l_cmeq:
+	NILP; jne cmeq2
+	ret;
+
+cmeq2:	PUSH1;
+	 CAR_CHAR_CHECK; SET2_1;
+	POP1;
+	CDR; NILP; je SETNIL;
+meqc:	PUSH1
+	 CAR_CHAR_CHECK;
+	 ?l(%eax,%ebx); je cmeq4;
+	POP2;
+	jmp SETNIL;
+
+cmeq4:	POP1;
+	CDR; NILP; jne meqc;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ！＝＞
+/
+/	すべて等しくないか
+/--------------------------------------
+@l_cmneq:
+	NILP; jne morneq;
+	ret;
+
+morneq:	PUSH1;
+	 CDR; NILP; jne cmn3;
+	POP1;
+	jmp SETT;
+
+cmn3:	 SET2_1;
+	POP1;
+	PUSH1;
+	 CAR_CHAR_CHECK;
+	 !l_member; NILP; je cmn4;
+	POP2;
+	jmp SETNIL;
+
+cmn4:	POP1;
+	CDR; jmp morneq
+
+/--------------------------------------
+/	＜ＣＨＡＲ＜＞
+/
+/	より小さい
+/--------------------------------------
+@l_cless:
+	NILP; jne cls2;
+	ret;				/引数なしのときnil
+
+cls2:	!set_first_char; jne lesp;	/引数ひとつのときnil
+	ret;
+
+lesp:	PUSH1;			 	/次に比較する数値
+	 CAR_CHAR_CHECK;
+	 UNMASK1; ?l(%ebx,%eax); jg cls3;
+	POP1;
+	jmp SETNIL;
+
+cls3:	 SET2_1;			/次に比較される数値
+	POP1;
+	CDR; NILP; jne lesp;		/リストが終わったか？
+	jmp SETT;
+
+set_first_char:				/引数リストを受けて、
+	PUSH1;				/%eaxにそのcdrを、%ebxに先頭の要素のコードを
+	 CAR_CHAR_CHECK; UNMASK1; SET2_1;
+	POP1;				/zフラグにcdrがnilかどうかを返す
+	CDR; NILP;
+	ret;
+
+/--------------------------------------
+/	＜ＣＨＡＲ＞＞
+/
+/	より大きい
+/--------------------------------------
+@l_cmore:
+	NILP; jne cmo2;
+	ret;
+
+cmo2:	!set_first_char; jne mor;
+	ret;
+
+mor:	PUSH1;
+	 CAR_CHAR_CHECK; UNMASK1;
+	 ?l(%ebx,%eax); jl cmo3;
+	POP1;
+	jmp SETNIL;
+
+cmo3:	 SET2_1;
+	POP1;
+	CDR; NILP; jne mor;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ＜＝＞
+/
+/	以下
+/--------------------------------------
+@l_clesseq:
+	NILP; jne cles2;
+	ret;
+
+cles2:	!set_first_char; jne lese;
+	ret;
+
+lese:	PUSH1;
+	 CAR_CHAR_CHECK; UNMASK1;
+	 ?l(%ebx,%eax); jge cles4;
+	POP1;
+	jmp SETNIL;
+
+cles4:	 SET2_1;
+	POP1;
+	CDR; NILP; jne lese;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ＞＝＞
+/
+/	以上
+/--------------------------------------
+@l_cmoreq:
+	NILP; jne cmr2;
+	ret;
+
+cmr2:	!set_first_char; jne moreq;
+	ret;
+
+moreq:	PUSH1;
+	 CAR_CHAR_CHECK; UNMASK1;
+	 ?l(%ebx,%eax); jle cmr4;
+	POP2; jmp SETNIL;
+
+cmr4:	 SET2_1;
+	POP1;
+	CDR; NILP; jne moreq;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ−ＥＱＵＡＬ＞
+/
+/	等しい
+/--------------------------------------
+@l_acmeq:
+	NILP; jne acm2;
+	ret;
+
+acm2:	!set_first_converted_char; je SETNIL;
+acmeq:	PUSH1;
+	 !get_first_char_converted;
+	 ?l(%eax,%ebx); je acm3;
+	POP2;
+	jmp SETNIL;
+
+acm3:	 SET2_1;
+	POP1; CDR; NILP; jne acmeq;
+	jmp SETT;
+
+set_first_converted_char:
+	PUSH1;
+	 !get_first_char_converted; SET2_1;
+	POP1;
+	CDR; NILP;
+	ret;
+
+get_first_char_converted:
+	CAR_CHAR_CHECK; UNMASK1; !convchr;
+	ret;
+
+convchr:
+	PUSH1;
+	 ?l($0x60,%eax); jng cc2;	/"a"-1
+	 ?l($0x7a,%eax); jnl cc2;	/"z"
+	POP1;
+	%eax-=$0x20; ret;		/"a"-"A"
+
+cc2:	POP1; ret;
+
+/--------------------------------------
+/　　＜ＣＨＡＲ−ＮＯＴ−ＥＱＵＡＬ＞
+/
+/	すべて等しくないか
+/--------------------------------------
+@l_acmneq:
+	NILP; jne acmorneq;
+	ret;
+
+acmorneq:
+	PUSH1;
+	 CDR; NILP; jne acmn2;
+	POP1; jmp SETT;
+
+acmn2:	 SET2_1;
+	POP1;
+	PUSH1;
+	 CAR_CHAR_CHECK;
+	 PUSH1; PUSH2;
+	   !l_char_upcase; !l_member;
+	  POP2;
+	  NILP;
+	POP1;
+	je acmn3;
+	POP2;
+	jmp SETNIL;
+
+acmn3:	  !l_char_downcase; !l_member;
+	 NILP; je acmn4;
+	POP2;
+	jmp SETNIL;
+
+acmn4:	POP1; CDR; jmp acmorneq
+
+/--------------------------------------
+/	＜ＣＨＡＲ−ＬＥＳＳＰ＞
+/
+/	より小さい
+/--------------------------------------
+@l_acless:
+	NILP; jne an11;
+	ret;				/引数なしのときnil
+
+an11:	!set_first_converted_char; jne lnesp;
+	ret;				/引数ひとつのときnil
+
+lnesp:	PUSH1; 				/次に比較する数値
+	 !get_first_char_converted;
+	 ?l(%ebx,%eax); jg an15;
+	POP1; jmp SETNIL;
+
+an15:	 SET2_1;			/次に比較される数値
+	POP1; CDR; NILP; jne lnesp;		/リストが終わったか？
+	jmp SETT;
+
+/--------------------------------------
+/　　＜ＣＨＡＲ−ＧＲＥＡＴＥＲＰ＞
+/
+/	より大きい
+/--------------------------------------
+@l_acmore:
+	NILP; jne an17; ret;
+
+an17:	!set_first_converted_char; jne morn;
+	ret;
+
+morn:	PUSH1;
+	 !get_first_char_converted;
+	 ?l(%ebx,%eax); jl an21;
+	POP1; jmp SETNIL;
+
+an21:	 SET2_1;
+	POP1; CDR; NILP; jne morn;
+	jmp SETT;
+
+/--------------------------------------
+/＜ＣＨＡＲ−ＮＯＴ−ＧＲＥＡＴＥＲＰ＞
+/
+/	以下
+/--------------------------------------
+@l_aclesseq:
+	NILP; jne an23;
+	ret;
+
+an23:	!set_first_converted_char; jne lnese;
+	ret;
+
+lnese:	PUSH1;
+	 !get_first_char_converted;
+	 ?l(%ebx,%eax); jge an27;
+	POP1; jmp SETNIL;
+
+an27:	 SET2_1;
+	POP1; CDR; NILP; jne lnese;
+	jmp SETT;
+
+/--------------------------------------
+/　　＜ＣＨＡＲ−ＮＯＴ−ＬＥＳＳＰ＞
+/
+/	以上
+/--------------------------------------
+@l_acmoreq:
+	NILP; jne an29;
+	ret;
+
+an29:	!set_first_converted_char; jne mnoreq;
+	ret;
+
+mnoreq:	PUSH1;
+	 !get_first_char_converted
+	 ?l(%ebx,%eax); jle an33;
+	POP1; jmp SETNIL;
+
+an33:	 SET2_1;
+	POP1; CDR; NILP; jne mnoreq;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＲ−ＣＯＤＥ＞
+/--------------------------------------
+@l_char_code:
+	GET_CHAR_E; jmp SETNUM
+
+/--------------------------------------
+/	＜ＣＨＡＲＡＣＴＥＲ＞
+/--------------------------------------
+@l_character:
+	CHARACTERP; jne L102
+	ret;
+
+L102:	FIXNUMP; je SETCHAR;
+	CELLP; je SETNIL;
+	STRINGP; je str_top_chr;
+L106:	NILP; jne L107;
+	SET1(niladr); jmp L111;
+
+L107:	UNKP; jne L109;
+	SET1(unkadr); jmp L111;
+
+L109:	EOFP; jne L110;
+	SET1(eofadr); jmp L111;
+
+L110:	SYMBOLP; jne SETNIL;
+L111:	SET2($0); UNMASK1; %bl=ATOMNAME(%eax);
+	!kanjip_bl; jne chres;
+	%bh=%bl; %bl=ATOMNAME+1(%eax); jmp chres;
+
+str_top_chr:
+	SET2($0); UNMASK1; %bl=(%eax);
+	!kanjip_bl; jne chres;
+	%bh=%bl; %bl=1(%eax);
+chres:	SET1_2;
+@SETCHAR:
+	UNMASK1; xorl $CHARACTERTAG,%eax; ret;
+
+kanjip_bl:
+	PUSH1;
+	 %al=%bl; !kanjip_al;
+	 ?b($0,%dl);
+	POP1;
+	ret;
+
+/--------------------------------------
+/	＜ＣＨＡＲ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+@l_char_upcase:
+	GET_CHAR_E;
+	?l($0x60,%eax); jng SETCHAR;	/"a"-1
+	?l($0x7a,%eax); jg SETCHAR;	/"z"
+	%eax-=$0x20; jmp SETCHAR;	/"a"-"A"
+
+/--------------------------------------
+/　　＜ＣＨＡＲ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_char_downcase:
+	GET_CHAR_E;
+	?l($0x40,%eax); jng SETCHAR;	/"A"-1
+	?l($0x5a,%eax); jg SETCHAR;	/"Z"
+	%eax+=$0x20; jmp SETCHAR;	/"a"-"A"
+
+/--------------------------------------
+/	＜ＤＩＧＩＴ−ＣＨＡＲ＞
+/--------------------------------------
+@l_digit_char:
+	FIXNUMPE; UNMASK1;
+	FIXNUMP2; je dc2;
+	%ebx=$10;			/デフォルトの基数は１０
+dc2:	UNMASK2;
+	?l($MAXBASE,%ebx); ja SETNIL;	/基数が大きすぎる場合
+	?l(%ebx,%eax); jnb SETNIL;
+	addb $0x30,%al;			/"0"
+	?b($0x39,%al); jng SETCHAR;	/"9"
+	addb $7,%al; jmp SETCHAR;	/"A"-"9"-1
+
+/--------------------------------------
+/	＜ＪＩＳ−ＡＬＰＨＡ−Ｐ＞
+/--------------------------------------
+@l_jis_alpha_p:
+	GET_CHAR_E;
+	?l($0x8260,%eax); jb SETNIL;
+	?l($0x8279,%eax); jbe SETT;
+	?l($0x8281,%eax); jb SETNIL;
+	?l($0x829a,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＤＩＧＩＴ−Ｐ＞
+/--------------------------------------
+@l_jis_digit_p:
+	GET_CHAR_E;
+	?l($0x824f,%eax); jb SETNIL;
+	?l($0x8258,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＨＩＲＡ−Ｐ＞
+/--------------------------------------
+@l_jis_hira_p:
+	GET_CHAR_E;
+	?l($0x829f,%eax); jb SETNIL;
+	?l($0x82f1,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＫＡＮＡ−Ｐ＞
+/--------------------------------------
+@l_jis_kata_p:
+	GET_CHAR_E;
+	?l($0x8340,%eax); jb SETNIL;
+	?l($0x8396,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＫＩＧＯＵ−Ｐ＞
+/--------------------------------------
+@l_jis_kigou_p:
+	GET_CHAR_E;
+	?l($0x8141,%eax); jb SETNIL;
+	?l($0x81ac,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＺＥＮ−Ｐ＞
+/--------------------------------------
+@l_jis_zen_p:
+	GET_CHAR_E;
+	?l($0x8140,%eax); jb SETNIL;
+	?l($0xea9e,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＬＯＷＥＲ−Ｐ＞
+/--------------------------------------
+@l_jis_lower_p:
+	GET_CHAR_E;
+	?l($0x8281,%eax); jb SETNIL;
+	?l($0x829a,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＵＰＰＥＲ−Ｐ＞
+/--------------------------------------
+@l_jis_upper_p:
+	GET_CHAR_E;
+	?l($0x8260,%eax); jb SETNIL;
+	?l($0x8279,%eax); jbe SETT;
+	jmp SETNIL;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＳＰＡＣＥ−Ｐ＞
+/--------------------------------------
+@l_jis_space_p:
+	GET_CHAR_E;
+	?l($0x8140,%eax); jne SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/＜ＪＩＳ−ＫＡＴＡ−ＴＯ−ＨＩＲＡ＞
+/--------------------------------------
+@l_jis_kata_to_hira:
+	PUSH1; !l_jis_kata_p;  NILP; POP1;
+	jne jkth;
+	ret;
+
+jkth:	UNMASK1;
+	?l($0x8380,%eax); jb jkth2;	/"ム"
+	%eax--;
+jkth2:	%eax-=$0xa1; jmp SETCHAR;
+
+/--------------------------------------
+/＜ＪＩＳ−ＨＩＲＡ−ＴＯ−ＫＡＴＡ＞
+/--------------------------------------
+@l_jis_hira_to_kata:
+	PUSH1; !l_jis_hira_p; NILP; POP1;
+	jne jhtk;
+	ret;
+
+jhtk:	UNMASK1;
+	?l($0x82df,%eax); jb jhtk2;	/"め"
+	%eax++;
+jhtk2:	%eax+=$0xa1; jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＤＯＷＮＣＡＳＥ＞
+/--------------------------------------
+@l_jis_downcase:
+	PUSH1; !l_jis_upper_p; NILP; POP1;
+	jne jdc;
+	ret;
+
+jdc:	UNMASK1; %eax+=$0x21; jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＪＩＳ−ＵＰＣＡＳＥ＞
+/--------------------------------------
+@l_jis_upcase:
+	PUSH1; !l_jis_lower_p; NILP; POP1;
+	jne juc;
+	ret;
+
+juc:	UNMASK1; %eax-=$0x21; jmp SETCHAR;
+
+/--------------------------------------
+/	＜ＨＡＮ−ＴＯ−ＺＥＮ＞
+/--------------------------------------
+@l_han_to_zen:
+	PUSH1; SET2NIL; !l_digit_char_p; NILP; POP1;
+	jne htz1;
+	PUSH1; !l_upper_case_p; NILP; POP1;
+	jne htz2;
+	PUSH1; !l_lower_case_p; NILP; POP1;
+	jne htz3;			/以下はテーブルで対応
+	ret;
+
+htz1:	%eax+=$0x821f; ret;		/数字の場合
+htz2:	%eax+=$0x821f; ret;		/大文字の場合
+htz3:	%eax+=$0x8220; ret;		/大文字の場合
+
+/--------------------------------------
+/	＜ＺＥＮ−ＴＯ−ＨＡＮ＞
+/--------------------------------------
+@l_zen_to_han:
+	PUSH1; !l_jis_digit_p; NILP; POP1;
+	jne zth1;
+	PUSH1; !l_jis_upper_p; NILP; POP1;
+	jne zth2;
+	PUSH1; !l_jis_lower_p; NILP; POP1;
+	jne zth3;			/以下はテーブルで対応
+	ret;
+
+zth1:	%eax-=$0x821f; ret;		/数字の場合
+zth2:	%eax-=$0x821f; ret;		/大文字の場合
+zth3:	%eax-=$0x8220; ret; 		/大文字の場合
+
+/--------------------------------------
+/＜ＣＨＡＲＡＣＴＥＲ−ＴＯ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_character_to_string:
+	CHARACTERP; jne NOT_CHAR_ERR;
+	PUSHBUFFER;
+	 !init_buffer_pointer;
+	 ?b($0,%ah); je cts;
+	 movb %ah,(%ebx); %ebx++;
+cts:	 movb %al,(%ebx); %ebx++; %ecx--;
+	 jmp endsub_make_string;
+
+/======================================
+/	エラー処理領域
+/======================================
+@NOT_CHAR_ERR:
+	ERR(11001)
+
+DIGIT_CHAR_P_ERR:
+	ERR(11002)
+

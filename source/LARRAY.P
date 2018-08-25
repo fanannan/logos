@@ -1,0 +1,275 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第１７章「配列」に対応
+/======================================
+
+	.file		"larray.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＶＥＣＴＯＲ＞
+/	CLtL2 S17-p389
+/--------------------------------------
+@l_vector:				/[type][displace][index-offset]
+	SPUSH1;				/[dim][array.....][elemnts....]
+	 !make_array_header;
+	SPOP1;
+vectorloop:
+	NILP; je vecend;
+	PUSH1;
+	 CAR; (%ecx)=%eax;		/書き込み
+	 %ecx+=$4; %esi++;		/配列要素数
+	POP1;
+	CDR;
+	jmp vectorloop;
+
+vecend:	SET1_2; xorl $ARRAYTAG,%eax;
+	arraytop=%ecx;
+	ret;
+
+make_array_header:
+	!l_length; UNMASK1;		/配列要素の数
+mah1:	PUSH1; %esi=%eax;		/要素数のカウント
+	 %ecx=arraytop;			/新しい配列の先頭位置
+	 PUSH3; %ecx+=$4; %ecx+=$ARRAYS;
+	  PUSH3;
+	   %esi+=%esi; %esi+=%esi; %ecx+=%esi;
+	   ?l(arrayend,%ecx); jng mah2;	/領域が足りるか？(ＧＢＣ)
+	   %eax=%ecx; %eax-=arraytop;	/確保必要なバイト数
+	   !array_gbc;
+	  POP3;
+	 POP3;
+	POP1;
+	jmp mah1;
+
+mah2:	  POP3;				/配列要素の開始位置
+	 POP2;				/新しい配列の位置
+	POP1;				/配列要素数
+	ARRAYS(%ebx)=%eax;		/配列要素数を書込む
+	DIMENSION(%ebx)=$1;		/次元数を書込む
+	%esi=$UNKTAG; ARRAYTYPE(%ebx)=%esi; /受入る型（取合えずunkとし、何でも受け入れる）
+	DISPLACE(%ebx)=%ebx;		/ディスプレースメントを書込む
+	INDEX_OFFSET(%ebx)=$0;		/インデックスオフセットを書込む(オフセット既定値はゼロ)
+	%esi=$0;			/%esi:要素数のカウンタ %eax:配列要素数
+	ret;				/%ebx:配列へのポインタ %ecx:配列格納位置
+
+/--------------------------------------
+/	＜ＡＲＥＦ＞
+/	CLtL2 S17-p393
+/--------------------------------------
+/--------------------------------------
+/	＜ＳＶＲＥＦ＞
+/	CLtL2 S17-p364
+/--------------------------------------
+@l_svref:
+	ARRAYP; jne NOT_ARRAY_ERR;	/第１引数が配列でない
+	PUSH1;
+	 SET1_2; !l_natnump; NILP;
+	POP1;
+	je ILSE;			/第２引数がゼロか正の整数でない
+@c_svref:
+	pushl %esi;
+	 UNMASK1; UNMASK2;
+	 ?l(ARRAYS(%eax),%ebx); jge ILSE2;
+	 leal ARRAYS(%eax),%esi;
+	 %ebx++; %ebx+=%ebx; %ebx+=%ebx;
+	 %esi+=%ebx; %eax=(%esi);
+	popl %esi;
+	ret;
+
+ILSE:	SET1_2; jmp ILLEGAL_SUBSCRIPT_ERR;
+ILSE2:	SET1_2; !SETNUM; jmp ILLEGAL_SUBSCRIPT_ERR;
+
+/--------------------------------------
+/	＜ＳＥＴ−ＶＥＣＴＯＲ＞
+/--------------------------------------
+@l_set_vector:
+	ARRAYP; jne NOT_ARRAY_ERR;	/第１引数が配列でない
+	PUSH1;
+	 SET1_2; !l_natnump; NILP;
+	POP1;
+	je ILSE;			/第２引数がゼロか正の整数でない
+@c_set_vector:
+	PUSH1; pushl %esi;
+	 UNMASK1; UNMASK2;
+	 ?l(ARRAYS(%eax),%ebx); jge ILSE2;
+	 leal ARRAYS(%eax),%esi;
+	 %ebx++; %ebx+=%ebx; %ebx+=%ebx; %esi+=%ebx; %eax=(%esi);
+	 (%esi)=%ecx;
+	popl %esi; POP1; ret;
+
+/--------------------------------------
+/＜ＡＲＲＡＹ−ＥＬＥＭＥＮＴ−ＴＹＰＥ＞
+/	CLtL2 S17-p394
+/--------------------------------------
+@l_array_element_type:
+	ARRAYP; jne NOT_ARRAY_ERR;
+	UNMASK1; %eax=ARRAYTYPE(%eax);
+	ret;
+
+/--------------------------------------
+/	＜ＡＲＲＡＹ−ＲＡＮＫ＞
+/	CLtL2 S17-p394
+/--------------------------------------
+@l_array_rank:
+	ARRAYP; jne NOT_ARRAY_ERR;
+	UNMASK1; %eax=DIMENSION(%eax);
+	jmp SETNUM;			/現在１次元配列のみサポート
+
+/--------------------------------------
+/  ＜ＡＲＲＡＹ−ＤＩＭＥＮＳＩＯＮ＞
+/	CLtL2 S17-p395
+/--------------------------------------
+@l_array_dimension:
+	ARRAYP; jne NOT_ARRAY_ERR;
+	UNMASK1; %eax=ARRAYS(%eax);	/次元数
+	jmp SETNUM;
+
+/--------------------------------------
+/   ＡＲＲＡＹ−ＤＩＭＥＮＳＩＯＮＳ
+/	CLtL2 S17-p395
+/--------------------------------------
+/--------------------------------------
+/   ＡＲＲＡＹ−ＴＯＴＡＬ−ＳＩＺＥ
+/	CLtL2 S17-p395
+/--------------------------------------
+/--------------------------------------
+/ ＜ＳＴＲＩＮＧ−ＴＯ−ＶＥＣＴＯＲ＞
+/	文字列→配列処理
+/--------------------------------------
+@l_string_to_vector:			/[type][displace][index-offset]
+	STRINGP; jne NOT_STRING_ERR;	/[dim][array.....][elemnts....]
+	SPUSH1;
+	 !make_array_header;
+	SPOP1;
+	PUSH1;
+	 %ebx=arraytop;			/新しい配列の位置
+	 DIMENSION(%ebx)=$1;		/次元数を書込む
+	 %eax=$CHARACTERTAG; ARRAYTYPE(%ebx)=%eax; /受け入れる形を書込む
+	 DISPLACE(%ebx)=%ebx;		/ディスプレースメントを書込む
+	 INDEX_OFFSET(%ebx)=$0;		/インデックスオフセットを書込む
+	 %ecx=%ebx; %ecx+=$4; %ecx+=$ARRAYS; /配列要素の開始位置
+	POP1;
+	UNMASK1; %eax--; SET4_1; %esi=$0; /文字の位置と要素数カウンタ
+msloop:	%edx++; %eax=$0; %al=(%edx);	/書き込み内容
+	?b($0,%al); je mslend;		/文字列の最後か？
+	[%edx;
+	 !kanjip_al; ?b($0,%dl); jne msl2; /漢字検査
+	]%edx;
+	%ah=%al; %edx++; %al=(%edx);	/漢字の場合、１文字読み進める
+	[%edx:
+msl2:	]%edx;
+	xorl $CHARACTERTAG,%eax; (%ecx)=%eax;		/文字型にする
+	%ecx++; %ecx++; %ecx++; %ecx++; %esi++; 	/要素数カウンタ
+	jmp msloop;
+
+mslend:	ARRAYS(%ebx)=%esi;		/配列要素数（文字数）を書込む
+	arraytop=%ecx;			/領域開始位置の更新
+	SET1_2;	xorl $ARRAYTAG,%eax;
+	ret;
+
+/--------------------------------------
+/   ＜ＶＥＣＴＯＲ−ＴＯ−ＬＩＳＴ＞
+/--------------------------------------
+@l_vector_to_list:			/エラーチェック！
+	ARRAYP; jne NOT_ARRAY_ERR;
+	UNMASK1; %ecx=ARRAYS(%eax);
+	?l($0,%ecx); je SETNIL;		/要素があるか？（ループの外でチェック）
+	leal	ARRAYS(%eax),%esi
+	SET2($BINDMARK1); SPUSH2;
+vlloop:	%esi+=$4;
+	%eax=(%esi); SPUSH1;
+	%ecx--; ?l($0,%ecx); je vlloop2;
+	jmp vlloop;
+
+vlloop2:
+	SET2NIL
+vlloop3:
+	SPOP1; ?l($BINDMARK1,%eax); je vlloop4;
+	!l_cons; SET2_1;
+	jmp vlloop3;
+
+vlloop4:
+	SET1_2; ret;
+
+/--------------------------------------
+/ ＜ＶＥＣＴＯＲ−ＴＯ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_vector_to_string:
+	ARRAYP; jne NOT_ARRAY_ERR;
+	UNMASK1; %ecx=ARRAYS(%eax);
+	?l($0,%ecx); je SETNIL;		/要素があるか？（ループの外でチェック）
+	leal ARRAYS(%eax),%esi;
+	SET1(%esi); SPUSH1; SPUSH3;	/PUSHBUFFERがレジスタを壊すため
+	PUSHBUFFER;
+	 !init_buffer_pointer;
+	 SPOP3; SPOP1; %esi=%eax;
+vsloop:	 %esi+=$4; %eax=(%esi);
+	 CHARACTERP; jne VECTOR_TO_STRING_ERR;
+	 ?b($0,%ah); je vsl2;
+	 movb %ah,(%ebx); %ebx++;
+vsl2:	 movb %al,(%ebx); %ebx++; %ecx--;
+	 ?l($0,%ecx); jne vsloop;
+	 jmp endsub_make_string;
+
+/--------------------------------------
+/	＜ＶＥＣＴＯＲ−ＥＱＵＡＬ＞
+/--------------------------------------
+@l_vector_equal:
+	ARRAYP; jne NOT_ARRAY_ERR;
+	ARRAYP2; jne NAE2;
+@c_vector_equal:
+	?l(%eax,%ebx); je SETT;
+	UNMASK1; UNMASK2;
+	leal ARRAYS(%eax),%eax;
+	leal ARRAYS(%ebx),%ebx;
+	%ecx=(%eax);			/要素数
+	?l((%ebx),%ecx); jne SETNIL;
+vector_equal_loop:
+	?l($0,%ecx); je SETT;
+	%eax+=$4; %ebx+=$4; %ecx--;
+	PUSH1; PUSH2; PUSH3;
+	 %eax=(%eax); %ebx=(%ebx); !l_equal; NILP;
+	POP3; POP2; POP1;
+	je SETNIL;
+	jmp vector_equal_loop;
+
+NAE2:	SET1_2; jmp NOT_ARRAY_ERR;
+
+/======================================
+/	エラー処理領域
+/======================================
+NOT_PLUSINTEGER_FOR_DIM_ERR:
+	ERR(16001)
+
+MAKEARRAY_OPTION_ERR:
+	ERR(16002)
+
+ARRAY_DISPLACEMENT_OFFSET_ERR:
+	ERR(16003)
+
+ARRAY_DISPLACEMENT_ERR:
+	ERR(16004)
+
+@NOT_ARRAY_ERR:
+	ERR(16006)
+
+NOT_ARRAY_SUBSCRIPTS_ERR:
+	ERR(16007)
+
+ILLEGAL_DIMENSION_ERR:
+	ERR(16008)
+
+ILLEGAL_SUBSCRIPT_ERR:
+	ERR(16009)
+
+VECTOR_TO_STRING_ERR:
+	ERR(16010)
+

@@ -1,0 +1,447 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/	グラフィック処理モジュール
+/======================================
+
+	.file	"lgraphic.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	グラフィック関数
+/======================================
+/--------------------------------------
+/	＜ＳＣＲＥＥＮ＞
+/	モード設定
+/--------------------------------------
+@l_screen:
+	UNMASK1; UNMASK2; UNMASK3;	/エラーチェックなし（暫定措置）
+	<;
+	 PUSH3;				/画面モード（高さ？）
+	 PUSH2;				/画面モード（幅？）
+	 PUSH1;				/画面モード（モード？）
+	!_GrSetMode;
+	>; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＧＣＬＲ＞
+/--------------------------------------
+@l_gclr:
+	NILP; jne gc2;
+	SET1($NUMBERTAG);
+gc2:	FIXNUMPE; UNMASK1;
+	PUSH1;				/色
+	 !l_pc9801p; NILP; je gc3;
+	 %edx=$400;			/画面の縦のドット数（ＰＣ９８）
+	 %ecx=$640; jmp gc4;		/画面の横のドット数
+
+gc3:	 %eax=screen_size_adr; %eax=VALUE(%eax);
+	 PUSH1;
+	  CAR; FIXNUMP; je gc31;
+	  %eax=$600;
+gc31:	  UNMASK1; %edx=%eax;		/画面の縦のドット数
+	 POP1;
+	 CDR; CAR; FIXNUMP; je gc32;
+	 %eax=$800;
+gc32:	 UNMASK1; %ecx=%eax;		/画面の縦のドット数
+gc4:	popl %esi;			/色
+	%eax=$0;			/始点
+lg2:	?l($0,%edx); jl SETNIL;
+	pusha; %ebx=%edx; !ll; popa;	/ラインによるクリア（遅い）
+	%edx--; jmp lg2;
+
+/--------------------------------------
+/	＜ＬＩＮＥ＞
+/--------------------------------------
+@l_line:
+	PUSH1; !l_fifth; !l_integer; UNMASK1; %esi=%eax; POP1;
+	pushl %esi;
+	 PUSH1; !l_cadddr; !l_integer; UNMASK1; SET4_1; POP1;
+	popl %esi;
+	pushl %esi; PUSH4;
+	 PUSH1; !l_caddr; !l_integer; UNMASK1; SET3_1; POP1;
+	POP4; popl %esi;
+	pushl %esi; PUSH4; PUSH3;
+	 PUSH1; !l_cadr; !l_integer; UNMASK1; SET2_1; POP1;
+	POP3; POP4; popl %esi;
+	pushl %esi; PUSH4; PUSH3; PUSH2;
+	 CAR; !l_integer; UNMASK1;
+	POP2; POP3; POP4; popl %esi;
+ll:	<;
+	 pushl %esi;			/color
+	 pushl %edx;			/y2
+	 PUSH3;				/x2
+	 PUSH2;				/y1
+	 PUSH1;				/x1
+	 !_GrLine;
+	>; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＰＬＯＴ＞
+/--------------------------------------
+@l_plot:
+	PUSH2;
+	 PUSH1; SET1_3; !l_integer; UNMASK1; SET3_1; POP1;
+	POP2;
+	PUSH3;
+	 PUSH1; SET1_2; !l_integer; UNMASK1; SET2_1; POP1;
+	POP3;
+	PUSH3; PUSH2;
+	 !l_integer; UNMASK1;
+	POP2; POP3;
+	<;
+	 PUSH3;				/色
+	 PUSH2;				/y
+	 PUSH1;				/x
+	 !_GrPlot;
+	>; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＣＩＲＣＬＥ＞
+/--------------------------------------
+@l_circle:
+	PUSH3; PUSH2;
+	 PUSH1; SET1_4; !l_integer; UNMASK1; SET4_1; POP1;
+	POP2; POP3;
+	PUSH4; PUSH2;
+	 PUSH1; SET1_3; !l_integer; UNMASK1; SET3_1; POP1;
+	POP2; POP4;
+	PUSH4; PUSH3;
+	 PUSH1; SET1_2; !l_integer; UNMASK1; SET2_1; POP1;
+	POP3; POP4;
+	PUSH4; PUSH3; PUSH2;
+	 !l_integer; UNMASK1;
+	POP2; POP3; POP4;
+	<;
+	 PUSH4; PUSH3; PUSH2; PUSH1; !GL4;
+	>; jmp SETNIL;
+
+GL4:	pushl	%ebp
+	movl	%esp,%ebp
+	subl	$16,%esp
+	pushl	%edi
+	pushl	%esi
+	pushl	%ebx
+	movl	16(%ebp),%ecx
+	movl	%ecx,-4(%ebp)
+	movl	%ecx,-8(%ebp)
+	movl	$0,-12(%ebp)
+	jmp	GL2
+
+GL5:	pushl	20(%ebp)
+	movl	12(%ebp),%ecx
+	movl	-12(%ebp),%edx
+	leal	(%edx,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-8(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	20(%ebp)
+	movl	12(%ebp),%esi
+	subl	-12(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	pushl	20(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-8(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	addl	$36,%esp
+	pushl	20(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	pushl	20(%ebp)
+	movl	12(%ebp),%ecx
+	movl	-8(%ebp),%edx
+	leal	(%edx,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-12(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	20(%ebp)
+	movl	12(%ebp),%esi
+	subl	-8(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	addl	$36,%esp
+	pushl	20(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-12(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	pushl	20(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	movl	-4(%ebp),%eax
+	incl	%eax
+	movl	-12(%ebp),%ecx
+	addl	%ecx,%ecx
+	subl	%ecx,%eax
+	movl	%eax,-4(%ebp)
+	addl	$24,%esp
+	incl	-12(%ebp)
+	testl	%eax,%eax
+	jge	GL2
+	movl	-8(%ebp),%eax
+	decl	%eax
+	movl	-4(%ebp),%ecx
+	leal	(%ecx,%eax,2),%edx
+	movl	%edx,-4(%ebp)
+	movl	%eax,-8(%ebp)
+GL2:	movl	-12(%ebp),%ecx
+	cmpl	-8(%ebp),%ecx
+	jle	GL5
+	leal	-28(%ebp),%esp
+	popl	%ebx
+	popl	%esi
+	popl	%edi
+	leave
+	ret
+
+/--------------------------------------
+/	＜ＰＯＬＹ＞
+/--------------------------------------
+@l_poly:
+	PUSH1; !l_fifth; !l_integer; UNMASK1; %esi=%eax; POP1;
+	pushl %esi;
+	 PUSH1; !l_cadddr; !l_integer; UNMASK1; SET4_1; POP1;
+	popl %esi;
+	pushl %esi; PUSH4;
+	 PUSH1; !l_caddr; !l_integer; UNMASK1; SET3_1; POP1;
+	POP4; popl %esi;
+	pushl %esi; PUSH4; PUSH3;
+	 PUSH1; !l_cadr; !l_integer; UNMASK1; SET2_1; POP1;
+	POP3; POP4; popl %esi;
+	pushl %esi; PUSH4; PUSH3; PUSH2;
+	 CAR; !l_integer; UNMASK1;
+	POP2; POP3; POP4; popl %esi;
+	<;
+	 pushl %esi;
+	 PUSH4;
+	 PUSH3;
+	 PUSH2;
+	 PUSH1;
+	 !poly1;
+	>; jmp SETNIL;
+
+poly1:	pushl	%ebp
+	movl	%esp,%ebp
+	subl	$24,%esp
+	pushl	%edi
+	pushl	%esi
+	pushl	%ebx
+	movl	20(%ebp),%ecx
+	cmpl	16(%ebp),%ecx
+	jge	H2
+	movl	16(%ebp),%ecx
+	movl	%ecx,-4(%ebp)
+	movl	%ecx,-20(%ebp)
+	movl	$0,-12(%ebp)
+	movl	-12(%ebp),%ecx
+	cmpl	-4(%ebp),%ecx
+	jg	H7
+H6:	movl	-4(%ebp),%eax
+	imull	20(%ebp),%eax
+	cltd
+	idivl	16(%ebp)
+	movl	%eax,-8(%ebp)
+	movl	-12(%ebp),%eax
+	imull	20(%ebp),%eax
+	cltd
+	idivl	16(%ebp)
+	movl	%eax,-16(%ebp)
+	pushl	24(%ebp)
+	movl	12(%ebp),%ecx
+	leal	(%eax,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-4(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%esi
+	subl	-16(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-4(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	addl	$36,%esp
+	pushl	24(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%ecx
+	movl	-8(%ebp),%edx
+	leal	(%edx,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-12(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%esi
+	subl	-8(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	addl	$36,%esp
+	pushl	24(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-12(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	pushl	24(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	movl	-20(%ebp),%eax
+	incl	%eax
+	movl	-12(%ebp),%ecx
+	addl	%ecx,%ecx
+	subl	%ecx,%eax
+	movl	%eax,-20(%ebp)
+	addl	$24,%esp
+	incl	-12(%ebp)
+	testl	%eax,%eax
+	jge	H3
+	movl	-4(%ebp),%eax
+	decl	%eax
+	movl	-20(%ebp),%ecx
+	leal	(%ecx,%eax,2),%edx
+	movl	%edx,-20(%ebp)
+	movl	%eax,-4(%ebp)
+H3:	movl	-12(%ebp),%ecx
+	cmpl	-4(%ebp),%ecx
+	jle	H6
+	jmp	H7
+
+H2:	movl	20(%ebp),%ecx
+	movl	%ecx,-4(%ebp)
+	movl	%ecx,-20(%ebp)
+	movl	$0,-12(%ebp)
+	jmp	H8
+
+H11:	movl	-4(%ebp),%eax
+	imull	16(%ebp),%eax
+	cltd
+	idivl	20(%ebp)
+	movl	%eax,-8(%ebp)
+	movl	-12(%ebp),%eax
+	imull	16(%ebp),%eax
+	cltd
+	idivl	20(%ebp)
+	movl	%eax,-16(%ebp)
+	pushl	24(%ebp)
+	movl	12(%ebp),%ecx
+	movl	-12(%ebp),%edx
+	leal	(%edx,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-8(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%esi
+	subl	-12(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-8(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	addl	$36,%esp
+	pushl	24(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%ecx
+	movl	-4(%ebp),%edx
+	leal	(%edx,%ecx),%ebx
+	pushl	%ebx
+	movl	8(%ebp),%ecx
+	movl	-16(%ebp),%edx
+	leal	(%edx,%ecx),%edi
+	pushl	%edi
+	!_GrPlot
+	pushl	24(%ebp)
+	movl	12(%ebp),%esi
+	subl	-4(%ebp),%esi
+	pushl	%esi
+	pushl	%edi
+	!_GrPlot
+	addl	$36,%esp
+	pushl	24(%ebp)
+	pushl	%ebx
+	movl	8(%ebp),%ebx
+	subl	-16(%ebp),%ebx
+	pushl	%ebx
+	!_GrPlot
+	pushl	24(%ebp)
+	pushl	%esi
+	pushl	%ebx
+	!_GrPlot
+	movl	-20(%ebp),%eax
+	incl	%eax
+	movl	-12(%ebp),%ecx
+	addl	%ecx,%ecx
+	subl	%ecx,%eax
+	movl	%eax,-20(%ebp)
+	addl	$24,%esp
+	incl	-12(%ebp)
+	testl	%eax,%eax
+	jge	H8
+	movl	-4(%ebp),%eax
+	decl	%eax
+	movl	-20(%ebp),%ecx
+	leal	(%ecx,%eax,2),%edx
+	movl	%edx,-20(%ebp)
+	movl	%eax,-4(%ebp)
+H8:	movl	-12(%ebp),%ecx
+	cmpl	-4(%ebp),%ecx
+	jle	H11
+H7:	leal	-36(%ebp),%esp
+	popl	%ebx
+	popl	%esi
+	popl	%edi
+	leave
+	ret
+
+/--------------------------------------
+/	＜ＰＩＸＥＬ＞
+/--------------------------------------
+@l_pixel:
+	PUSH1; SET1_2; !l_integer; UNMASK1; SET2_1; POP1;
+	PUSH2; !l_integer; UNMASK1; POP2;
+	<;
+	 PUSH2;				/y
+	 PUSH1;				/x
+	 !_GrPixel;
+	>; jmp SETNUM;
+

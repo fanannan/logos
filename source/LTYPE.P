@@ -1,0 +1,151 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　コモンリスプ第４章「型指定子」に対応
+/======================================
+
+	.file	"ltype.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＣＯＥＲＣＥ＞
+/	CLtL2 S4-54
+/--------------------------------------
+@l_coerce:
+	SYMBOLP2; jne COERCE_ERR;
+	UNMASK2;
+	FIXNUMP; je coerce_fixnum;
+	FLOANUMP; je coerce_floanum;
+	CHARACTERP; je coerce_character;
+	?l(fixnumadr,%ebx); je l_address_of;	/アドレスを求める
+	CELLP; je coerce_cell;
+	STRINGP; je coerce_string;
+	ARRAYP; je coerce_array;
+	STRUCTP; je coerce_struct;
+	SYMBOLP; je coerce_symbol;
+	ret;
+
+coerce_cell:
+	?l(arrayadr,%ebx); je l_vector;		/コンスからベクタ
+	?l(stringadr,%ebx); jne cc1;		/コンスから文字列
+	!l_vector; jmp l_vector_to_string;
+cc1:	?l(structadr,%ebx); je l_defstruct;	/コンスから構造体
+	?l(symboladr,%ebx); je l_pack;		/コンスからシンボル
+	?l(characteradr,%ebx); jne cc2;
+	CAR; SET2NIL; jmp l_character;		/コンスから文字
+cc2:	?l(consadr,%ebx); jne COERCE_ERR;
+coend:	ret;					/変換せず
+
+coerce_string:
+	?l(structadr,%ebx); je COERCE_ERR;	/文字列から構造体はエラー
+	?l(characteradr,%ebx); jne csg1;	/文字列から文字
+	SET2NIL; jmp l_character;
+csg1:	?l(symboladr,%ebx); je l_make_symbol;	/文字列からシンボル
+	?l(stringadr,%ebx); je coend;		/変換せず
+	PUSH2; !l_string_to_vector; POP2;	/文字列からベクタ
+coerce_array:
+	?l(stringadr,%ebx); je l_vector_to_string; /ベクタから文字列
+	?l(arrayadr,%ebx); je coend;		/変換せず
+	PUSH2; !l_vector_to_list; POP2;		/ベクタからリスト
+	jmp coerce_cell;
+
+coerce_struct:
+	?l(stringadr,%ebx); je COERCE_ERR;	/構造体から文字列はエラー
+	?l(structadr,%ebx); je coend;		/変換せず
+	PUSH2; !l_struct_to_list; POP2;
+	jmp coerce_cell;
+
+coerce_symbol:
+	?l(stringadr,%ebx); je l_symbol_name;	/シンボルから文字列
+	?l(characteradr,%ebx); jne csm1;	/シンボルから文字
+	SET2NIL; jmp l_character;
+csm1:	?l(symboladr,%ebx); je coend;		/変換せず
+	PUSH2; !l_unpack; POP2;			/シンボルからコンス
+	jmp coerce_cell;
+
+coerce_fixnum:
+	?l(floanumadr,%ebx); je l_float;	/整数から浮動小数点数
+	?l(fixnumadr,%ebx); jne COERCE_ERR;
+	ret;
+
+coerce_floanum:
+	?l(fixnumadr,%ebx); je l_integer;	/浮動小数点数から整数
+	?l(floanumadr,%ebx); jne COERCE_ERR;
+	ret;
+
+coerce_character:
+	?l(fixnumadr,%ebx); je l_char_code;	/文字から整数
+	?l(stringadr,%ebx); je l_character_to_string;	/文字から文字列
+	?l(symboladr,%ebx); jne cch1;		/文字からシンボル
+	!l_character_to_string; jmp l_make_symbol;
+cch1:	?l(characteradr,%ebx); jne COERCE_ERR;
+	ret;
+
+/--------------------------------------
+/	＜ＴＹＰＥ−ＯＦ＞
+/	CLtL2(J) S4-p56 (!)
+/--------------------------------------
+@l_type_of:
+	NILP; jne type_of1;
+	ret;
+
+type_of1:
+	CELLP; jne type_of3
+	SET1(consadr);
+type_of2:
+	xorl $SYMBOLTAG,%eax; ret;
+type_of3:
+	ARRAYP; jne type_of4;
+	SET1(arrayadr); jmp type_of2
+type_of4:
+	STRUCTP; jne type_of5;
+	UNMASK1; SET1(4(%eax)); ret;		/構造体の型名を返す
+type_of5:
+	STRINGP; jne type_of6;
+	SET1(stringadr); jmp type_of2;
+type_of6:
+	CHARACTERP; jne type_of7;
+	SET1(characteradr); jmp type_of2;
+type_of7:
+	FIXNUMP; jne type_of8;
+	SET1(fixnumadr); jmp type_of2;
+type_of8:
+	FLOANUMP; jne type_of9;
+	SET1(floanumadr); jmp type_of2;
+type_of9:
+	EOFP; je type_of15;
+	UNKP; je type_of15;
+	PUSH1;
+	 UNMASK1; SET2(FUNCTYPE(%eax));
+	POP1;
+	?b($SUBR,%bh); jne type_of10;
+	SET1(subradr); jmp type_of2;
+type_of10:
+	?b($FSUBR,%bh); jne type_of11;
+	SET1(fsubradr); jmp type_of2;
+type_of11:
+	?b($EXPR,%bh); jne type_of12;
+	SET1(expradr); jmp type_of2;
+type_of12:
+	?b($FEXPR,%bh); jne type_of13;
+	SET1(fexpradr); jmp type_of2;
+type_of13:
+	?b($MACRO,%bh); jne type_of14;
+	SET1(macroadr); jmp type_of2;
+type_of14:
+	SYMBOLP; jne TYPE_OF_ERR;
+type_of15:
+	SET1(symboladr); jmp type_of2
+
+/======================================
+/	エラー処理領域
+/======================================
+COERCE_ERR:
+	ERR(6001)
+
+TYPE_OF_ERR:
+	ERR(6002)
+

@@ -1,0 +1,483 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/　メインモジュールおよびコモンリスプ第
+/　２４章「エラー」、第２５章「さまざま
+/　な機能」に対応
+/
+/　本ファイルが一番最初にリンクされなく
+/  てはなりません
+/
+/======================================
+
+	.file	"logos.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+@textbegin:				/プログラム本体開始位置
+
+/--------------------------------------
+/	＜開始処理＞
+/--------------------------------------
+@start:
+	%ebx=%esp;			/開始ラベル名はstartでなくてはならない
+	initial_sp=%ebx;		/スタックポインタの保存
+	%eax=4(%ebx); no_of_args=%eax;	/引数の数＋１
+	%eax=8(%ebx); _environ=%eax;	/環境変数の位置
+	%ebp=stackarea;			/ソフトウェアスタックポインタ初期化
+@_main:	!init;				/初期化ルーチン呼出し
+	!l_top_level;			/メインルーチン呼出し
+	jmp c_exit;			/終了
+
+/--------------------------------------
+/	＜終了処理＞
+/
+/	引数をリターンコードとして返す
+/--------------------------------------
+@l_exit:
+	NILP; je c_exit;		/nilの場合は%alは常に零となる
+	FIXNUMP; jne NOT_INTEGER_ERR;
+@c_exit:
+	PUSH1;
+	 SET1NIL; !l_dribble;		/ドリブルファイルのクローズ
+	POP1;
+	%esp=initial_sp;		/スタックポインタの復帰
+	%ah=$0x4c; int	DOS;		/%alをリターンコードとして終了
+	ret;
+
+/--------------------------------------
+/	＜初期化ルーチン＞
+/
+/	開始の表示をし，初期化を行う
+/--------------------------------------
+init:	infile=$CON; outfile=$CRT;	/ファイルハンドルの初期化
+	!read_switch;			/コマンドラインの読込と評価
+	!get_areas;			/メモリ取得
+	!make_default_atoms;		/アトムの初期化
+	!clear_buffers;			/入力バッファの初期化
+	%ebp=stackarea;			/ソフトウェアスタックポインタ初期化
+	SET1(default_log_file_adr);	/ドリブルファイルの設定
+	xorl $SYMBOLTAG,%eax; !l_dribble;
+	?l($1,start_message_flag) jne m1;
+	PRMSG $STARTMSG;		/開始表示を行うことになっていれば表示
+m1:	?l($1,alloc_message_flag) jne m2;
+	!l_room;			/メモリ配置表示を行うことになっていれば表示
+m2:	!l_fpup; NILP; je m3;
+	exist_fpu=$1;			/ＦＰＵがあれば０，ＥＭＵなら１
+m3:	SET1($SYMBOLTAG);		/内部時計の初期設定処理
+	!l_time;			/%eax:システム時間
+	<; PUSH1; !_srand; >;		/乱数系列の変更(システム時間を乱数の種とする)
+	?l($1,load_init_file_flag) jne m4;
+	SET1(init_file_adr);		/初期化ファイルの読み込みを行うことになっていれば読み込む
+	xorl $SYMBOLTAG,%eax; !l_load;
+m4:	?l($0,auto_load_file) je m5;
+	SET1($auto_load_file);		/自動読み込みファイルが指定されていれば読み込む
+	UNMASK1; xorl $STRINGTAG,%eax; !l_load;
+m5:	ret;
+
+/--------------------------------------
+/＜コマンドラインパラメータの読込評価＞
+/--------------------------------------
+read_switch:
+	%edi=no_of_args;		/ %edi : 起動プログラム名の位置
+rs0:	%edi+=$4;
+	%ebx=%edi;			/ %ebx : 引数の位置
+	?l($0,(%ebx)) je rse;		/ 引数の位置になにもないか？
+	%ebx=(%ebx); %dl=(%ebx);	/ 実際に引数の存在する位置
+	?b($0x2d,%dl) je rs2;		/ "-"
+	?b($0x2f,%dl) je rs2;		/ "/"
+	%eax=$auto_load_file;		/自動読み込みファイル名の転送
+	%ecx=(%ebx); (%eax)=%ecx;
+	%ecx=4(%ebx); 4(%eax)=%ecx;
+	%ecx=8(%ebx); 8(%eax)=%ecx;
+	ret;
+
+rs2:	%ebx++;
+	%dl=(%ebx);
+	?b($RET_CHR,%dl) je rs3;	/行の終わりか
+	?b($0x40,%dl) jng rss;		/"A"-1 小文字に変換
+	?b($0x5a,%dl) jg rss;		/"Z"
+	%dl+=$0x20;			/"a"-"A"
+rss:	?b($0x6d,%dl)	jne rs21;	/ m 開始表示
+	!read_option_flag; start_message_flag=%eax; jmp rs0;
+rs21:	?b($0x6c,%dl)	jne rs25;	/ l 初期化ファイル読み込み
+	!read_option_flag; load_init_file_flag=%eax; jmp rs0;
+rs25:	?b($0x61,%dl)	jne rs26;	/ a メモリ状況表示
+	!read_option_flag; alloc_message_flag=%eax; jmp rs0;
+rs26:	?b($0x3f,%dl)	je rs3;		/ ? ヘルプ
+	?b($0x6f,%dl)	jne rs28;	/ o コード領域確保
+	!read_size; size_of_code=%eax; jmp rs0;
+rs28:	?b($0x63,%dl)	jne rs29;	/ c コンス領域確保
+	!read_size; size_of_cell=%eax; jmp rs0;
+rs29:	?b($0x76,%dl)	jne rs292;	/ v 配列領域確保
+	!read_size; size_of_array=%eax; jmp rs0;
+rs292:	?b($0x74,%dl)	jne rs30;	/ t 構造体領域確保
+	!read_size; size_of_struct=%eax; jmp rs0;
+rs30:	?b($0x73,%dl)	jne rs31;	/ s シンボル領域確保
+	!read_size; size_of_symbol=%eax; jmp rs0;
+rs31:	?b($0x67,%dl)	jne rs32;	/ g 文字列領域確保
+	!read_size; size_of_string=%eax; jmp rs0;
+rs32:	?b($0x66,%dl)	jne rs33;	/ f 数値領域確保
+	!read_size; size_of_floanum=%eax; jmp rs0;
+rs33:	?b($0x6b,%dl)	jne rs39;	/ k スタック領域確保
+	!read_size; size_of_stack=%eax; jmp rs0;
+rs39:	jmp rsend;
+
+rsend:	[#4; PRMSG $INVALID_SWITCH_MSG; ]#4;	/ 不正なオプションが指定された場合
+	PRCHR;				/ 指定されたオプションの表示
+rs3:	PRMSG $EXPLANATION;		/ オプション説明の表示をする
+	POP1; jmp c_exit;		/ ダミ−
+
+read_option_flag:
+	%ebx++; %eax=$0; %al=(%ebx); %al-=$0x30;
+rse:	ret;
+
+read_size:				/メモリサイズをバイト単位で返す
+	%eax=$0;
+rsid:	%ebx++;
+	%edx=$0; %dl=(%ebx);
+	?b($0,%dl) je rsie;
+	%dl-=$0x30; [#4; %ecx=$10; mul %ecx; ]#4; %eax+=%edx;
+	jmp rsid;
+
+rsie:	?l($MINIMUM_AREA,%eax); jnl rsie2;
+	%eax=$MINIMUM_AREA;		/最低値の設定
+rsie2:	%ebx=$1024; mul %ebx; ret;	/キロバイト単位に変換
+
+/--------------------------------------
+/	＜メモリの取得＞
+/--------------------------------------
+get_areas:
+	<
+	[size_of_symbol; !_malloc;		/シンボル領域の大きさ（バイト）
+	symbolarea=%eax; symboltop=%eax;	/シンボル領域の開始位置
+	%eax+=size_of_symbol; symbolend=%eax;	/シンボル領域の終了位置
+
+	[size_of_code; !_malloc;		/コンパイルされたコードの領域の大きさ
+	codearea=%eax; codetop=%eax;		/コード領域の開始位置
+	%eax+=size_of_code; codeend=%eax;	/コード領域の終了位置
+
+	[size_of_cell; !_malloc;		/コンス領域の大きさ（バイト）
+	cellarea=%eax; freecell=%eax;		/コンス領域の開始位置
+	%eax+=size_of_cell; cellend=%eax;	/コンス領域の終了位置
+
+	%eax=size_of_cell;			/ＧＢＣ領域は最も大きなデータ領域の大きさ
+	?l(size_of_code,%eax); jg ga2;		/コンスの後ろに配置する
+	%eax=size_of_code;			/（そうしないとシンボルの値を壊す）
+ga2:	?l(size_of_array,%eax); jg ga3;
+	%eax=size_of_array;
+ga3:	?l(size_of_struct,%eax); jg ga4;
+	%eax=size_of_struct;
+ga4:	?l(size_of_symbol,%eax); jg ga5;
+	%eax=size_of_symbol;
+ga5:	?l(size_of_floanum,%eax); jg ga6;
+	%eax=size_of_floanum;
+ga6:	PUSH1;
+	 PUSH1; !_malloc;			/ＧＢＣ領域の大きさ（バイト）
+	 gbcarea=%eax;				/ＧＢＣ領域の開始位置
+	POP2; %eax+=%ebx; gbcend=%eax;		/ＧＢＣ領域の終了位置
+
+	[size_of_array; !_malloc;		/配列領域の大きさ（バイト）
+	arrayarea=%eax; arraytop=%eax;		/配列領域の開始位置
+	%eax+=size_of_array; arrayend=%eax;	/配列領域の終了位置
+	[size_of_struct; !_malloc;		/構造体領域の大きさ（バイト）
+	structarea=%eax; structtop=%eax;	/構造体領域の開始位置
+	%eax+=size_of_struct; structend=%eax;	/構造体領域の終了位置
+
+	[size_of_string; !_malloc;		/文字列領域の大きさ（バイト）
+	stringarea=%eax; stringtop=%eax;	/文字列領域の開始位置
+	%eax+=size_of_string; stringend=%eax;	/文字列領域の終了位置
+	[size_of_floanum; !_malloc;		/数値領域の大きさ（バイト）
+	floanumarea=%eax; floanumtop=%eax;	/数値領域の開始位置
+	%eax+=size_of_floanum; floanumend=%eax;	/数値領域の終了位置
+
+	[size_of_stack; !_malloc;		/スタック領域の大きさ（バイト）
+	stackarea=%eax; 			/スタック領域の開始位置
+	%eax+=size_of_stack; stackend=%eax;	/スタック領域の終了位置
+	>; ret;
+
+/--------------------------------------
+/	トップレベル関数
+/--------------------------------------
+@l_top_level:
+	%ebp=stackarea;			/ソフトウェアスタックポインタ初期化
+main2:	!clear_buffers;			/入力バッファの初期化
+main3:	!toplevel;			/トップレベル関数の繰り返し
+	jmp main3;
+
+@toplevel:
+	trace_depth=$0;			/トレースの深さの初期化
+	PRLF;				/改行
+	SET1NIL; !l_read;		/標準入力にする
+	PUSH1;
+	 %ebx=dribble_file; UNMASK2;
+	 ?l($0,%ebx); jle tl0;
+	 xorl $NUMBERTAG,%ebx; !l_print;
+tl0:	POP1;
+	SPUSH1;				/Redoのための記録
+	 %ecx=redo_adr; %ebx=VALUE(%ecx);
+	 PUSH1;
+	  CAR; UNMASK1; ?l(%ecx,%eax)	/読み込んだ式がredo関数なら記録しない
+	 POP1; je tl1;
+	 !l_cons; VALUE(%ecx)=%eax;
+tl1:	SPOP1;
+	%esi=minus1adr; %ebx=plus1adr;	/以下 + ++ +++ の束縛
+	%ecx=plus2adr; %edx=plus3adr;
+	%edi=VALUE(%ecx); VALUE(%edx)=%edi;
+	%edi=VALUE(%ebx); VALUE(%ecx)=%edi;
+	%edi=VALUE(%esi); VALUE(%ebx)=%edi;
+@toplevel2:				/ - の束縛
+	%ebx=minus1adr; VALUE(%ebx)=%eax;
+
+	!l_eval;			/評価
+	!c_print;			/表示
+
+	%ebx=mult1adr;			/以下 * ** *** の束縛
+	%ecx=mult2adr; %edx=mult3adr;
+	%edi=VALUE(%ecx); VALUE(%edx)=%edi;
+	%edi=VALUE(%ebx); VALUE(%ecx)=%edi;
+	VALUE(%ebx)=%eax;
+	ret;
+
+/======================================
+/	エラー表示
+/======================================
+/--------------------------------------
+/	＜ＥＲＲＯＲ＞
+/--------------------------------------
+@l_error:
+	!l_warn; jmp l_top_level;
+
+@err:	pusha;
+	PUSH1; !err1; POP1;		/エラーの表示
+emi:	pusha;
+	 %eax=FUNCJMP; %eax+=$FUNCJMPT;	/%eax:関数処理アドレス
+	 %ebx=symbolarea;	 	/チェック開始位置
+gchai:	 %ecx=FUNCTION(%ebx);
+	 ?l(%ecx,%eax) je find;
+gnxta:	 addl	$ATOMNAME,%ebx		/シンボルを１つ終えて次に移る
+gsna:	 %dl=(%ebx); %ebx++;		/文字列の終端チェック
+	 orb %dl,%dl; jne gsna;
+	 ?l(symboltop,%ebx) jb gchai;
+	 jmp main2;			/見つからなければそのまま
+
+find:	 outfile=$CRT;
+	 PRMSG $ERRFUNCTION;
+	 SET1_2; xorl $SYMBOLTAG,%eax; !c_print;
+	 %dl=$0x29; PRCHR;		/")"
+	popa;
+	SYMBOLP;je earg
+	NILP;	je earg
+	UNKP;	je earg
+	EOFP;	je earg
+	STRINGP;je earg
+	CHARACTERP;je earg;
+	FIXNUMP;je earg
+	FLOANUMP;je earg
+	ARRAYP;je earg;
+	STRUCTP;je earg;
+	CELLP; jne earg2;
+	?l(cellarea,%eax); jl earg2;
+	?l(cellend,%eax); jg earg2;
+	pusha;				/本当にセルか
+	 %edx=$0; %ecx=$8;
+	 divl %ecx;
+	 ?l($0,%edx);
+	popa; je earg;
+	jmp earg2;
+
+earg:	PRSPC; !c_print;
+earg2:	SET1(debug_adr); SET1(VALUE(%eax)); NILP;
+	popa; je main2;
+	pusha; PRLF; PREAX; popa;
+	pusha; SET1_2; PRSPC; PREAX; popa;
+	pusha; SET1_3; PRSPC; PREAX; popa;
+	pusha; SET1_4; PRSPC; PREAX; popa;
+	pusha; SET1(%ebp); PRSPC; PREAX; popa;
+	jmp main2;
+
+/--------------------------------------
+/	＜ＷＡＲＮ＞
+/--------------------------------------
+@l_warn:
+	FIXNUMP; jne WARN_ERR;
+	PUSH1; UNMASK1; err_no=%eax; !err1; POP1; ret;
+
+err1:	outfile=$CRT;			/エラーヘッダーの表示(画面に表示)
+	%esi=err_header_adr; %eax=VALUE(%esi); !c_print;
+	<
+	%esp-=$ERR_MSG_BUFFER;
+	%eax=err_file_adr; %eax=VALUE(%eax);
+	STRINGP; je MA;			/マニュアルファイル名が指定されているか
+	SYMBOLP; je MA;			/マニュアルファイル名が指定されているか
+	%eax=$default_error_file;	/デフォルトのファイル名を指定
+	jmp MA0;
+MA:	!get_filename;
+MA0:	[$ERC0;				/オープンモード
+	UNMASK1; PUSH1; 		/ファイル名の開始位置
+	!_fopen;			/ファイルオープン
+	?l($0,%eax)			/ファイルが見つかったか？
+	je ERR_MSG_FILE_NOT_FOUND_ERR;
+	-4(%ebp)=%eax; %esp+=$8;
+ER2:	leal -ERR_MSG_BUFFER(%ebp),%eax;
+	PUSH1;
+	 leal -8(%ebp),%eax;
+	 PUSH1;				/バッファの位置
+	 [$ERC2;			/読込フォーマット文字列
+	 [-4(%ebp);			/ハンドル番号
+	 !_fscanf;
+	%esp+=$16;
+	?l($-1,%eax); je ER3;		/eof?	エラー番号見つからず
+	%eax=err_no;
+	cmpl %eax,-8(%ebp); jne ER2;	/照合番号
+	leal -ERR_MSG_BUFFER(%ebp),%eax
+	PRMSG %eax;		/表示
+ER3:	[-4(%ebp); !_fclose;
+ER1:	>; ret;
+
+/======================================
+/	エラー領域
+/======================================
+ERR_MSG_FILE_NOT_FOUND_ERR:
+	PRMSG $ERR_MSG_FILE_NOT_FOUND_ERR_MSG
+	jmp emi;
+
+WARN_ERR:
+	ERR(1001)
+
+/======================================
+/	データ領域
+/======================================
+/--------------------------------------
+/	定数領域
+/--------------------------------------
+STARTMSG:				/開始表示
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"LOGOS : LISP Interpreter Ver0.50"
+	db	SPC_CHR
+	db	REM_CHR			/"/"
+	db	SPC_CHR
+	str	__DATE__
+	db	RET_CHR, LF_CHR, RET_CHR, LF_CHR, 0
+
+INVALID_SWITCH_MSG:			/無効なオプションが指定されたとき
+	db	RET_CHR,LF_CHR
+	asz	"Invalid option switch : -"
+
+EXPLANATION:				/オプションの説明
+	db	RET_CHR, LF_CHR, LF_CHR
+	str	"Usage : go32 logos.out -[option][flag] filename"
+	db	RET_CHR, LF_CHR, LF_CHR, HT_CHR
+	str	"-m[f] : display opening-Message or not (default : display)"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-a[f] : display memory Allocation or not (default : display)"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-l[f] : load 'init.lsp' automatically or not (default : read)"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-?    : display option switches"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"if the figure following an option is 1, LOGOS lets the option work."
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"otherwise, LOGOS will not do."
+	db	RET_CHR, LF_CHR,LF_CHR, HT_CHR
+	str	"-o[n] : get memory for compiled Object codes area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-c[n] : get memory for Cons area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-v[n] : get memory for array and Vector area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-t[n] : get memory for strucT area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-s[n] : get memory for Symbol area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-f[n] : get memory for Floanum area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-g[n] : get memory for strinG area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"-k[n] : get memory for stacK area"
+	db	RET_CHR, LF_CHR, HT_CHR
+	str	"[n]s mean the amount of the memory "
+	str	"measured by unit of Kbytes"
+	db	RET_CHR, LF_CHR, RET_CHR, LF_CHR, HT_CHR
+	str	"<Example> go32 logos.out -l1 -m0 -A1 -c10000 -s5000 comp.lsp"
+	db	RET_CHR, LF_CHR, 0
+
+default_error_file:
+		asz	"logos.err"	/デフォルトのエラーファイル名
+ERC0:		asz	"rt"		/エラー表示用ファイル操作モード
+ERC2:		asz	"%d%s"
+ERRHEADER:	asz	" %%% "		/エラー冒頭文字列
+ERRFUNCTION:	asz	" (Error at "	/エラー発生箇所表示
+ERR_MSG_FILE_NOT_FOUND_ERR_MSG:
+		asz	"ERROR-MESSAGE-FILE was not found. Change the content of *error-message-file*."
+
+/--------------------------------------
+/	変数領域
+/--------------------------------------
+	.data
+
+@databegin:				/データ領域開始ラベル
+@initial_sp:	dd	0
+@_environ:	dd	0
+@exist_fpu:	dd	0
+@starttime:	dd	0		/開始時のシステム時間
+@err_no:	dd	0		/エラー番号
+no_of_args:	dd	0
+start_message_flag:	dd	1	/オプションスイッチのフラグ
+alloc_message_flag:	dd	1
+load_init_file_flag:	dd	1
+auto_load_file:	dd	0		/引数として渡されたファイル
+		dd	0		/（１２バイト必要）
+		dd	0
+
+@gbcarea:	dd	0		/ＧＢＣ作業領域
+@gbcend:	dd	0
+
+@size_of_code:	dd	CODESIZE	/コード領域の大きさ
+@codearea:	dd	0		/開始位置
+@codetop:	dd	0		/ポインタの現在位置
+@codeend:	dd	0		/終了位置
+
+@size_of_cell:	dd	CELLSIZE	/コンス領域の大きさ
+@cellarea:	dd	0		/開始位置
+@freecell:	dd	0		/ポインタの現在位置
+@cellend:	dd	0		/終了位置
+
+@size_of_array:	dd	ARRAYSIZE	/配列領域の大きさ
+@arrayarea:	dd	0		/開始位置
+@arraytop:	dd	0		/ポインタの現在位置
+@arrayend:	dd	0		/終了位置
+
+@size_of_struct:
+		dd	STRUCTSIZE	/構造体領域の大きさ
+@structarea:	dd	0		/開始位置
+@structtop:	dd	0		/ポインタの現在位置
+@structend:	dd	0		/終了位置
+
+@size_of_symbol:
+		dd	SYMBOLSIZE	/シンボル領域の大きさ
+@symbolarea:	dd	0		/開始位置
+@symboltop:	dd	0		/ポインタの現在位置
+@symbolend:	dd	0		/終了位置
+
+@size_of_string:
+		dd	STRINGSIZE	/文字列領域の大きさ
+@stringarea:	dd	0		/開始位置
+@stringtop:	dd	0		/ポインタの現在位置
+@stringend:	dd	0		/終了位置
+
+@size_of_floanum:
+		dd	FLOANUMSIZE	/数値領域の大きさ
+@floanumarea:	dd	0		/開始位置
+@floanumtop:	dd	0		/ポインタの現在位置
+@floanumend:	dd	0		/終了位置
+
+@size_of_stack:	dd	STACKSIZE	/スタック領域の大きさ
+@stackarea:	dd	0		/開始位置
+@stackend:	dd	0		/終了位置
+

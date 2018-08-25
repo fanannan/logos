@@ -1,0 +1,414 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/コモンリスプ第２１章「ストリーム」、第
+/２２章「入出力」、第２３章「ファイルシ
+/ステム・インタフェース」に対応
+/======================================
+
+	.file	"lfile.p"
+	.text
+#include	"logos.inc"
+
+#define O_RDONLY	0x0001
+#define	O_WRONLY	0x0002
+#define	O_RDWR		0x0004
+#define	O_CREAT		0x0100
+#define	O_TRUNC		0x0200
+#define O_EXCL		0x0400
+#define O_APPEND	0x0800
+#define O_TEXT		0x4000
+#define O_BINARY	0x8000
+
+#define S_IREAD		0x0100
+#define S_IWRITE	0x0080
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＯＰＥＮ＞
+/
+/	ファイルのオープン
+/--------------------------------------
+@l_open:
+	PUSH1;
+	 CAR; !get_filename; SET3_1;
+	POP1;
+	CDR; SET2($0);
+	NILP; jne openloop;		/デフォルトはテキスト読み込み
+	SET1_3;
+open_at_default:
+	SET3_1;				/ファイル名
+	SET2($O_RDONLY); orl $O_TEXT,%ebx;
+	jmp open0;
+
+openloop:
+	PUSH1;
+	 CAR; SYMBOLP; jne OPEN_MODE_ERR;
+	 UNMASK1;
+	 ?l(read_adr,%eax); jne ol2;
+	 %eax=$O_RDONLY; jmp ole;
+ol2:	 ?l(write_adr,%eax); jne ol3;
+	 %eax=$O_WRONLY; jmp ole;
+ol3:	 ?l(io_adr,%eax); jne ol4;
+	 %eax=$O_RDWR; jmp ole;
+ol4:
+
+/*
+	 ?l(creat_adr,%eax); jne ol5;
+	 %eax=$O_CREAT; jmp ole;
+ol5:	 ?l(trunc_adr,%eax); jne ol6;
+	 %eax=$O_TRUNC; jmp ole;
+ol6:	 ?l(exclusive_adr,%eax); jne ol7;
+	 %eax=$O_EXCL; jmp ole;
+*/
+
+ol7:	 ?l(append_adr,%eax); jne ol8;
+	 %eax=$O_APPEND; jmp ole;
+ol8:	 ?l(text_adr,%eax); jne ol9;
+	 %eax=$O_TEXT; jmp ole;
+ol9:	 ?l(binary_adr,%eax); jne ol10;
+	 %eax=$O_BINARY; jmp ole;
+ol10:	 xorl $SYMBOLTAG,%eax;		/エラーの時モード指示詞を表示できるようにする
+	 jmp OPEN_MODE_ERR;
+
+ole:	 orl %eax,%ebx;
+	POP1; CDR; NILP; jne openloop;
+open0:	pushl file_mode;
+	%edx=$file_mode;
+op1:	PUSH2;
+	 andl $O_RDONLY,%ebx; ?l($O_RDONLY,%ebx);
+	POP2; jne op2;
+	movb $0x72,(%edx);		/"r"
+op2:	PUSH2;
+	 andl $O_WRONLY,%ebx; ?l($O_WRONLY,%ebx);
+	POP2; jne op3;
+	movb $0x77,(%edx);		/"w"
+op3:	PUSH2;
+	 andl $O_APPEND,%ebx; ?l($O_APPEND,%ebx);
+	POP2; jne op4;
+	movb $0x61,(%edx);		/"a"
+op4:	PUSH2;
+	 andl $O_RDWR,%ebx; ?l($O_RDWR,%ebx);
+	POP2; jne op5;
+	%edx++; movb $PLUS_CHR,(%edx);	/"+"
+op5:	PUSH2;
+	 andl $O_BINARY,%ebx; ?l($O_BINARY,%ebx);
+	POP2; jne op6;
+	movb $0x62,1(%edx);		/"b"
+op6:	PUSH2;
+	 andl $O_TEXT,%ebx; ?l($O_TEXT,%ebx);
+	POP2; jne op7;
+	movb $0x74,1(%edx);		/"t"
+op7:	<;				/%ebx:モード、%ecx:ファイル名
+	 pushl $file_mode; 
+	 PUSH3;				/モードおよびファイル名
+	 !_fopen; ?l($0,%eax);
+	>; 
+	popl file_mode;
+	je SETNIL;
+	jmp SETNUM;			/ファイルポインタ番号を返す
+
+PRLF; PRMSG  $file_mode;
+PRLF; SET1_3; PREAX; PRMSG %eax
+PUSH1; SET1(16(%eax)); PRLF; PREAX; POP1;	/ファイルモード(下位２バイト)
+PUSH1; SET1(18(%eax)); PRLF; PREAX; POP1;	/ハンドル番号
+
+/--------------------------------------
+/	＜ＣＬＯＳＥ＞
+/--------------------------------------
+@l_close:
+	HANDLEP; jne NON_FILE_MODE_ERR;
+	UNMASK1;
+c_close:
+	<; PUSH1; !_fclose; ?l($0,%eax); >;
+	jne SETNIL;
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＬＯＡＤ＞
+/
+/	ファイルからの読み込み
+/--------------------------------------
+@l_load:
+	PUSHBUFFER;			/再帰の場合のために、バッファを待避する
+	pushl infile;
+	 pushl bufferpointer;		/バッファポインタ保存
+	  SET3_1; !get_filename;
+	  PUSH3;
+	   !open_at_default; UNMASK1;
+	   ?l($0,%eax); je NON_HANDLE_ERR;
+	  POP3;
+	  %edi=$0; cachepointer=%edi;
+
+	  SET4(load_verbose_adr);	/ファイル名を表示するか？
+	  SET4(VALUE(%edx));
+	  NILP4; je ltl1;
+
+	  PUSH1; SET2_1;
+	   PRMSG $LOAD1;		/ファイルオープンの表示
+	   SET1_3; !c_print;		/ファイル名の表示
+	   PRMSG $LOAD2;		/ハンドル番号の表示
+	   PUSH1;
+	    SET1_2; UNMASK1; xorl $NUMBERTAG,%eax;
+	    !c_print; PRLF;
+	   POP1;
+	  POP1;
+
+ltl1:	  infile=%eax;			/%eax:ファイルポインタ
+	  SPUSH1;
+loadloop:  !clear_buffers;		/ここでバッファを初期化するので１行中で連続した
+	   %eax=infile;			/Ｓ式の読み込みができない
+	   !SETNUM; !l_read;		/読み込み
+	   pushl bufferpointer;
+	    pushl %ebp;
+	     !l_eval;			/評価
+	     SET2(load_print_adr);	/評価結果を表示するか？
+	     SET2(VALUE(%ebx));
+	     NILP2; je ltle;
+	     PUSH1;
+	      !c_print;			/評価結果の表示
+	      SET1_2; !c_print;		/評価結果同士の区切りを表示
+	     POP1
+ltle:	    popl %ebp;
+	   popl bufferpointer;
+	   EOFP; jne loadloop;		/Ｓ式のある限り繰返
+	  SPOP1;
+	  !c_close;			/%eax:ファイルクローズ
+	 popl bufferpointer;		/バッファポインタ復帰
+	popl infile;
+	POPBUFFER;			/バッファの復帰
+	jmp SETT;
+
+/--------------------------------------
+/	＜ＣＨＡＮＧＥ−ＤＩＲ＞
+/--------------------------------------
+@l_change_dir:
+	PUSH1;
+	 !get_filename;
+	 <; PUSH1; !_chdir; >;
+chr:	 ?l($0,%eax);
+	POP1; jne SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＤＩＲ＞
+/--------------------------------------
+@l_make_dir:
+	PUSH1;
+	 !get_filename;
+	 <; UNMASK1; PUSH1; !_mkdir; >;
+	 jmp chr;
+
+/--------------------------------------
+/	＜ＲＥＭＯＶＥ−ＤＩＲ＞
+/--------------------------------------
+@l_remove_dir:
+	PUSH1;
+	 !get_filename;
+	 <; PUSH1; !_rmdir; >;
+	 jmp chr;
+
+/--------------------------------------
+/	＜ＲＥＮＡＭＥ−ＦＩＬＥ＞
+/２回実行するとファイルを削除してしまうので
+/当面は動作しないようにしておく
+/--------------------------------------
+@l_rename_file:
+	PUSH1;
+	 !get_filename;
+	 PUSH1;
+	  SET1_2; !get_filename; SET2_1;
+	 POP1;
+	 <;
+	 PUSH1; PUSH2; !_rename;
+	 >;
+	 jmp chr;
+
+/--------------------------------------
+/	＜ＤＥＬＥＴＥ−ＦＩＬＥ＞
+/--------------------------------------
+@l_delete_file:
+	PUSH1;
+	 !get_filename
+	 <; PUSH1; !_remove; >;
+	 jmp chr;
+
+/--------------------------------------
+/	＜ＰＲＯＢＥ−ＦＩＬＥ＞
+/--------------------------------------
+@l_probe_file:
+	!get_filename;			/bl:オープンモード 0:read 1:write 2:read/write
+	SET4_1;
+	%bl=$0; %ah=$0x3d; int DOS;	/al,bl:read
+	jc probe2;			/キャリーがセットされていなけ
+	!c_close; jmp SETT;
+
+probe2:	?b($2,%al); je SETNIL;		/ファイルが見つからなかったか
+	jmp SETT;
+
+/------------------------------------
+/	＜ＦＩＬＥ−ＬＥＮＧＴＨ＞
+/--------------------------------------
+@l_file_length:
+	!get_filename;
+	<;
+	 fsize=$-1;			/ファイルサイズ初期値
+	 pushl $READBYTE;			/オープンモード
+	 PUSH1;				/ファイル名
+	 !_fopen; SET2_1;		/ファイルオープン
+	 %esp+=$8;
+	 testl %ebx,%ebx; je LN2;	/ファイルオープンできたか？
+	 pushl $2;			/ファイルの終端から
+	 pushl $0;			/零番目の位置に
+	 PUSH2;				/ハンドル上で
+	 !_fseek;			/移動する
+	 %esp+=$12;
+	 testl %eax,%eax; jne LN3;	/移動できたか？
+	 PUSH2;				/ハンドル上で
+	 !_ftell;			/現在の位置はどこか
+	 fsize=%eax;			/一旦待避
+	 %esp+=$4;
+LN3:	 PUSH2;				/ハンドルを
+	 !_close;			/クローズする
+	 %esp+=$4;
+LN2:	>;
+	%eax=fsize;
+	?l($-1,%eax); je FILE_LENGTH_ERR;
+	jmp SETNUM;
+
+/------------------------------------
+/	＜ＳＥＥＫ＞
+/--------------------------------------
+@l_seek:
+	FIXNUMP12;
+	HANDLEP2; jne NON_FILE_MODE_ERR;
+	<; UNMASK1; UNMASK2;
+	 pushl $0;			/ファイルの先端から
+	 PUSH1;				/%eax 番目の位置に
+	 PUSH2;				/ハンドル上で
+	 !_fseek;			/移動する
+	>;
+	?l($-1,%eax); je SETNIL;
+	jmp SETT;
+
+/------------------------------------
+/	＜ＴＥＬＬ＞
+/--------------------------------------
+@l_tell:
+	HANDLEP; jne NON_FILE_MODE_ERR;
+	UNMASK1;
+	<; PUSH1; !_ftell; >;
+	?l($-1,%eax); je SETNIL;
+	jmp SETNUM;
+
+/--------------------------------------
+/	＜ＳＡＶＥ＞
+/
+/メモリイメージのファイルへの書き込み
+/--------------------------------------
+@l_save:				/現状、圧縮せず。expandにも対応せず
+	<;
+	!get_filename;
+	PUSH2;
+	 pushl $WRITEBYTE;
+	 PUSH1;
+	 !_fopen; SET2_1;
+	 PUSH2;				/書き込みハンドル
+	 pushl $1;			/書き込み回数
+	 %ebx=$dataend;			/データ領域から、
+	 %eax=floanumend; %eax-=%ebx;	/浮動小数点領域の終わりまで
+	 PUSH1;				/size
+	 pushl $dataend;		/開始位置
+	 !_fwrite;
+	 PUSH2;
+	 !_close;
+	 leal -4(%ebp),%esp;
+	POP2;
+	>; jmp SETT
+
+/--------------------------------------
+/	＜ＤＲＩＢＢＬＥ＞
+/
+/　入出力の記録ファイルの管理
+/--------------------------------------
+@l_dribble:
+	NILP; je dribble2
+	!get_filename; SET3_1;
+	%ebx=$O_WRONLY; orl $O_CREAT,%ebx;
+	orl $O_BINARY,%ebx; orl $O_APPEND,%ebx;
+	!open0; dribble_file=%eax;	/ファイルポインタ
+	jmp SETNUM;
+
+dribble2:
+	%eax=dribble_file;
+	?l($0,%eax); je dribble3;
+	!l_close;
+dribble3:
+	dribble_file=$0; jmp SETT;
+
+/======================================
+/	ファイル名の取得
+/======================================
+@get_filename:
+	STRINGP; je gf2;		/文字列でのファイル指定
+gf1:	SYMBOLP; jne NOT_FILE_ERR
+	%eax+=$ATOMNAME;
+gf2:	UNMASK1; ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+NOT_FILE_ERR:
+	ERR(3001)
+
+@NON_FILE_MODE_ERR:
+	ERR(3002)
+
+NON_HANDLE_ERR:
+	ERR(3003)
+
+@LOAD_ERR:
+	?b($1,%al); jne L8;
+	ERR(3004)
+
+L8:	?b($2,%al); jne L9;
+	ERR(3005)
+
+L9:	?b($3,%al); jne L10;
+	ERR(3009)
+
+L10:	?b($4,%al); jne L11;
+	ERR(3006)
+
+L11:	?b($5,%al); jne L12;
+	ERR(3007)
+
+L12:	?b($0c,%al); jne L13;
+	ERR(3008)
+
+L13:	JUMP_ERR
+
+FILE_LENGTH_ERR:
+	ERR(3010)
+
+OPEN_MODE_ERR:
+	ERR(3013)
+
+/======================================
+/	データ領域
+/======================================
+LOAD1:	asz	"open "
+LOAD2:	asz	" as #"
+READBYTE:	str	"rb\0"
+WRITEBYTE:	str	"wb\0"
+file_mode:	asz	"rt\0\0"	/必ず４バイト以上確保する
+@dribble_file:	dd	0		/これはsaveの対象にしない
+
+	.data
+	.data
+fsize:		dd	0
+

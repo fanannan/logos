@@ -1,0 +1,798 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/ コモンリスプ第２２章「入出力」に対応
+/======================================
+
+	.file	"lprint.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+/--------------------------------------
+/	＜ＰＲＩＮ１＞
+/--------------------------------------
+@l_prin1:
+	PUSH1;
+	 pushl outfile;
+	  NILP2; jne pr2;		/出力ハンドルが指定されていなければ
+	  %ebx=$NUMBERTAG+CRT;		/コンソールを指定
+pr2:	  FIXNUMP2; jne NOT_HANDLE_NUMBER_ERR	/ハンドル番号でなければエラー
+	  UNMASK2; outfile=%ebx; 	/出力ハンドルの指定
+	  !print_s_expression;
+	 popl outfile;
+	POP1; ret;
+
+/--------------------------------------
+/	＜ＰＲＩＮＴ＞
+/--------------------------------------
+@l_print:		  		/改行してから、印字し、スペースを出力
+	PUSH1; PUSH2; SET1_2; !l_terpri; POP2; POP1;
+	PUSH2; !l_prin1; POP2;
+	PUSH1; SET1_2; !l_space; POP1;
+	ret;
+
+/--------------------------------------
+/	＜ＰＲＩＮＣ＞
+/--------------------------------------
+@l_princ:
+	%esi=print_escape_adr; %edi=VALUE(%esi);
+	pushl %edi; pushl %esi;
+	 VALUE(%esi)=$NILTAG; !l_prin1;	/エスケープ文字印字しないprin1
+	popl %esi; popl %edi;
+	VALUE(%esi)=%edi;
+	ret;
+
+/--------------------------------------
+/	＜ＷＲＩＴＥ−ＣＨＡＲ＞
+/--------------------------------------
+@l_write_char:
+	CHARACTERP; jne NOT_CHARACTER_ERR;
+	NILP2; je print_chr_to_con;		/出力ハンドルが指定されていなければ画面出力
+	FIXNUMP2; jne NOT_HANDLE_NUMBER_ERR;	/ハンドル番号でなければエラー
+	PUSH1;
+	 UNMASK1; UNMASK2;
+	 ?b($0,%ah); je wc3;
+	 %cl=%al; %al=%ah;
+	 PUSH3; PUSH2;
+	  <; PUSH2; PUSH1; !_fputc; >;
+	 POP2; POP1;
+wc3:	 <; PUSH2; PUSH1; !_fputc; >;
+	 ?l($-1,%eax);
+	POP1; je SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜ＷＲＩＴＥ−ＳＴＲＩＮＧ＞
+/--------------------------------------
+@l_write_string:
+	STRINGP; jne NOT_STRING_ERR;
+	NILP2; je w_str;			/出力ハンドルが指定されていなければ画面出力
+	FIXNUMP2; jne NOT_HANDLE_NUMBER_ERR;	/ハンドル番号でなければエラー
+	PUSH1;
+	UNMASK1; %edx=%eax; %ecx=$0;			/出力文字列の位置設定 出力文字数カウント
+ws1:	 cmpb $0,(%eax); je ws2;
+	 %ecx++; %eax++; jmp ws1;
+ws2:	  <;
+	   UNMASK2; PUSH2;		/ファイル
+	   pushl $1;			/回数
+	   pushl %ecx;			/サイズの指定
+	   pushl %edx;			/表示文字列開始位置
+	   !_fwrite;
+	  >;
+	  ?l(%ecx,%eax);
+	POP1; je SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜ＷＲＩＴＥ−ＬＩＮＥ＞
+/--------------------------------------
+@l_write_line:
+	PUSH1;
+	 PUSH2;
+	  !l_write_string;
+	  NILP; jne wl2;
+	 POP2; POP2; ret;
+
+wl2:	 POP1;
+	 !l_terpri;
+	POP1;
+	ret;
+
+/--------------------------------------
+/	＜ＴＥＲＰＲＩ＞
+/--------------------------------------
+@l_terpri:
+	PUSH1;
+	 pushl outfile;
+	  NILP; jne tr2;		/出力ハンドルが指定されていなければ
+	  %eax=$NUMBERTAG+CRT;		/コンソールを指定
+tr2:	  FIXNUMP; jne NOT_HANDLE_NUMBER_ERR; /ハンドル番号でなければエラー
+	  UNMASK1; outfile=%eax; 	/出力ハンドルの指定
+	  PRLF;				/改行
+	 popl outfile;
+	POP1; jmp SETNIL;		/nilを返す
+
+/--------------------------------------
+/	＜ＴＥＲＰＲＩＳ＞
+/--------------------------------------
+@l_terpris:
+	PUSH1; PUSH2;
+	 !l_natnump; NILP;
+	POP2; POP1;
+	je NUMBER_ERR;
+	FIXNUMP2; je trlp0;
+	NILP2; jne NOT_HANDLE_NUMBER_ERR
+trlp0:	UNMASK1; SET3_1; SET1_2;
+trlp:	?l($0,%ecx); je SETNIL;
+	!l_terpri; %ecx--; jmp trlp;
+
+/--------------------------------------
+/	＜ＳＰＡＣＥ＞
+/--------------------------------------
+@l_space:
+	PUSH1;
+	 pushl outfile;
+	  NILP; jne sr2;		/出力ハンドルが指定されていなければ
+	  %eax=$NUMBERTAG+CRT;		/コンソールを指定
+sr2:	  FIXNUMP; jne NOT_HANDLE_NUMBER_ERR; /ハンドル番号でなければエラー
+	  UNMASK1; outfile=%eax;	/出力ハンドルの指定
+	  PRSPC;
+	 popl outfile;
+	POP1; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＳＰＡＣＥＳ＞
+/--------------------------------------
+@l_spaces:
+	PUSH1; PUSH2;
+	  !l_natnump; NILP;
+	POP2; POP1;
+	je NUMBER_ERR;
+	FIXNUMP2; je tlp0;
+	NILP2; jne NOT_HANDLE_NUMBER_ERR;
+tlp0:	UNMASK1; SET3_1; SET1_2;
+tlp:	?l($0,%ecx); je SETNIL;
+	!l_space; %ecx--; jmp tlp;
+
+/--------------------------------------
+/	＜ＴＡＢ＞
+/--------------------------------------
+@l_tab:	PUSH1;
+	 pushl outfile;
+	  NILP; jne tar2;		/出力ハンドルが指定されていなければ
+	  %eax=$NUMBERTAG+CRT;		/コンソールを指定
+tar2:	  FIXNUMP; jne NOT_HANDLE_NUMBER_ERR; /ハンドル番号でなければエラー
+	  UNMASK1; outfile=%eax;	/出力ハンドルの指定
+	  %dl=$HT_CHR; PRCHR;
+	 popl outfile;
+	POP1; jmp SETNIL;
+
+/--------------------------------------
+/	＜ＴＡＢＳ＞
+/--------------------------------------
+@l_tabs:
+	PUSH1; PUSH2;
+	 !l_natnump; NILP;
+	POP2; POP1;
+	je NUMBER_ERR;
+	FIXNUMP2; je talp0;
+	NILP2; jne NOT_HANDLE_NUMBER_ERR
+talp0:	UNMASK1; SET3_1; SET1_2;
+talp:	?l($0,%ecx); je SETNIL;
+	!l_tab; %ecx--; jmp talp;
+
+/--------------------------------------
+/	＜ＷＲＩＴＥ−ＢＹＴＥ＞
+/--------------------------------------
+@l_write_byte:
+	FIXNUMPE;
+	NILP2; je print_chr_to_con;		/出力ハンドルが指定されていなければ画面出力
+	FIXNUMP2; jne NOT_HANDLE_NUMBER_ERR;	/ハンドル番号でなければエラー
+	PUSH1;
+	 UNMASK1; UNMASK2;
+	 <; PUSH2; PUSH1; !_fputc; >;
+	 ?l($-1,%eax);
+	POP1; je SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜Ｓ式の出力＞
+/
+/	Ｓ式を出力する
+/	セルは再帰的に処理する
+/--------------------------------------
+	ALIGN
+print_s_expression:
+	CELLP; jne L1;			/リストの出力
+	incl print_level;
+	 %ecx=print_level_adr; %ebx=VALUE(%ecx);
+	 NILP2; je pse;
+	 FIXNUMP2; je psex;
+	 VALUE(%ecx)=$NILTAG; jmp PRINT_LEVEL_ERR;
+
+psex:	 UNMASK2;
+	 ?l(%ebx,print_level); jg pse0;
+
+pse:	 !pse2; jmp pse1;
+pse0:	 PRMSG $CONT;
+pse1:	decl print_level;
+	ret;
+
+pse2:	%ecx=print_pretty_adr; %ebx=VALUE(%ecx);
+	NILP2; je pse4;			/quoteを簡略表現にするか
+	PUSH1;
+	 CAR; SYMBOLP; jne pse3;	/quote式か？
+	 UNMASK1;
+	 ?l(quoteadr,%eax); jne pse3;
+	POP1;
+	PUSH1;
+	 CDR; NILP; je pse3;		/quote単独ではないか？
+	POP1;
+	PUSH1;
+	 CDR; CDR; NILP; jne pse3;	/quoteの後に複数のＳ式がないか？
+	POP1;
+	%dl=$QUOTE_CHR; PRCHR;		/"'"
+	CDR; CAR; jmp print_s_expression;
+
+pse3:	POP1;
+pse4:	!printleftp;			/"("
+	PUSH1;				/まずcarのＳ式を出力
+	 M_CAR; !print_s_expression;
+	POP1;
+	!print_cdr;			/それからcdrのＳ式を出力
+	NILP; je printrightp;		/nilになったら右括弧出力
+	PRSPC;				/そうでもなければドット対
+	PUSH1;
+	 %dl=$DOT_CHR; PRCHR;
+	POP1;
+	PRSPC;
+	!print_s_expression;
+	jmp printrightp;		/")"
+					/アトムの出力
+L1:	FIXNUMP; je print_number;	/数値型の出力 print-baseを参照し，ｎ進出力
+	FLOANUMP; je print_floanum;	/浮動小数点型数の出力
+	CHARACTERP; je print_character;	/文字型の出力
+	ARRAYP; je print_array;		/配列の出力
+	STRUCTP; je print_struct;	/構造体の出力
+	STRINGP; je print_str;		/文字列型の出力
+	NILP; jne L7;			/論理値の出力
+	SET1(niladr); jmp print_atom;
+
+L7:	UNKP; jne L9;
+	SET1(unkadr); jmp print_atom;
+
+L9:	EOFP; jne L10;
+	SET1(eofadr); jmp print_atom;
+
+L10:	SYMBOLP; je print_atom;
+	SET1NIL; jmp PRINT_ERR;		/表示の暴走防止
+
+@c_print:				/デバグ用画面出力専用
+	pusha;
+	 %ebx=$NUMBERTAG+CRT;		/コンソールを指定
+	 !l_prin1;
+	popa; ret;
+
+/--------------------------------------
+/	＜括弧の出力＞
+/--------------------------------------
+	ALIGN
+print_cdr:
+	M_CDR;
+L15:	CELLP; je L16;			/cdrがセルであるかぎり
+	ret;
+
+L16:	incl print_length;
+	 %ecx=print_length_adr; %ebx=VALUE(%ecx);
+	 NILP2; je pcd;
+	 FIXNUMP2; je prcd0;
+	 VALUE(%ecx)=$NILTAG; jmp PRINT_LENGTH_ERR;
+
+prcd0:	 UNMASK2;
+	 ?l(%ebx,print_length); jge pcd0;
+pcd:	 !pcd2; jmp pcd1;
+
+pcd0:	 PRMSG $DOTS;
+	 SET1NIL;
+pcd1:	decl print_length;
+	ret;
+
+pcd2:	PRSPC;
+	PUSH1;
+	 pushl print_length;
+	  print_length=$0;
+	  M_CAR; !print_s_expression;	/まずそのcdrのcarを出力
+	 popl print_length;
+	POP1;
+	jmp print_cdr;			/それからcdrのcdrを取り出す
+
+printleftp:
+	PUSH1;
+	 !check_print_paren; je L18;
+	 %dl=$LPAR_CHR; jmp L17
+
+printrightp:
+	PUSH1;
+	 !check_print_paren; je L18;
+	 %dl=$RPAR_CHR;
+L17:	 PRCHR;
+L18:	POP1; ret;
+
+check_print_paren:
+	SET1(print_paren_adr);		/"("の有無のフラグ
+	SET1(VALUE(%eax));
+	NILP;
+	ret;
+
+/--------------------------------------
+/	＜シンボルアトムの出力＞
+/--------------------------------------
+	ALIGN
+print_atom:
+	UNMASK1; %eax+=$ATOMNAME;	/%eax:シンボル名の位置
+	%ebx=$namebuffer;
+pal:	movb (%eax),%cl; movb %cl,(%ebx); /シンボル名をバッファ(namebuffer)に複写
+	cmpb $0,(%eax); je pale;
+	%eax++; %ebx++;
+	jmp pal;
+
+pale:	%eax=$namebuffer;
+	PUSH1;
+	 %eax=print_case_adr;		/印字形式
+	 %eax=VALUE(%eax);
+	 SYMBOLP; jne prup;
+	 UNMASK1;
+	 ?l(downcase_adr,%eax); je prdown;
+	 ?l(capitalize_adr,%eax); je prcapitalize;
+prup:	POP1;
+	!c_nstring_upcase;		/指定が無効の場合もupcase
+	jmp pale2;
+
+prdown:	POP1;
+/c_nstring_downcase;
+	jmp pale2;
+
+prcapitalize:
+	POP1;
+	!c_nstring_capitalize;
+pale2:	PRMSG $namebuffer;
+	ret;
+
+/--------------------------------------
+/	＜配列の出力＞
+/--------------------------------------
+	ALIGN
+print_array:
+	PUSH1;
+	 SET1(print_array_adr);		/ *print-array*の参照
+	 SET1(VALUE(%eax));
+	 NILP;
+	POP1; jne prar;
+	PUSH1;				/#<の表示
+	 %dl=$SHARP_CHR; PRCHR;
+	 PRMSG $ARRAY_MSG;
+	POP1;
+	ret;
+
+prar:	PUSH1;				/#A(の表示
+	 %dl=$SHARP_CHR; PRCHR; 	/ただし、現状はベクタのみなので #(の形式で表示する
+	 !printleftp;
+	POP1;
+	UNMASK1;
+prst0:	%ecx=ARRAYS(%eax); leal ARRAYS(%eax),%esi;
+	?l($0,%ecx); je printrightp;	/要素があるか？（ループの外でチェック） ")"の表示
+
+palo:	pushl print_length;
+	 print_length=$0;
+	 %edx=print_length_adr; %ebx=VALUE(%edx);
+	 NILP2; je prst2;
+	 FIXNUMP2; je prst1;
+	 VALUE(%edx)=$NILTAG; jmp PRINT_LENGTH_ERR;
+
+prst1:	 UNMASK2; 
+prst2:	 !paloop;
+	popl print_length;
+	ret;
+
+paloop:	%ecx--; %esi+=$4; %eax=(%esi);
+	incl print_length;
+	pusha;
+	 %ebx=outfile; xorl $NUMBERTAG,%ebx;
+	 !l_prin1;
+	popa;
+	?l(%ebx,print_length); jge pal2;
+	?l($0,%ecx); je printrightp;	/")"の表示
+	PRSPC;				/最後の要素の後に空白を入れないように
+	jmp paloop			/終端チェックを行う
+
+pal2:	PRMSG $DOTS; jmp printrightp;
+
+/--------------------------------------
+/	＜構造体の出力＞
+/--------------------------------------
+	ALIGN
+print_struct:
+	PUSH1;				/#S(の表示
+	 %dl=$SHARP_CHR; PRCHR;
+	 %dl=$0x53; PRCHR;
+	 !printleftp;
+	POP1;
+	UNMASK1; %ecx=(%eax); %esi=%eax;
+	%ecx--;
+	?l($0,%ecx); je printrightp;	/要素があるか？（ループの外でチェック）")"の表示
+	jmp palo;
+
+/--------------------------------------
+/	＜文字列アトムの出力＞
+/--------------------------------------
+	ALIGN
+print_str:
+	UNMASK1; %edi=%eax;
+	PUSH1;
+	 SET1(print_escape_adr);	/引用記号の有無のフラグ
+	 SET1(VALUE(%eax));
+	 NILP; jne L19;
+	PRSTR; ret;
+
+L19:	POP1;
+	PUSH1; %dl=$0x22; PRCHR; POP1;
+	PUSH1; PRSTR;
+	PUSH1; %dl=$0x22; PRCHR; POP1;
+	ret;
+
+w_str:	PUSH1; UNMASK1; PUSH1; PRSTR; POP1; ret;
+
+/--------------------------------------
+/	＜文字型を表示＞
+/--------------------------------------
+	ALIGN
+print_character:
+	PUSH1; PUSH1;
+	  SET1(print_escape_adr);	/#\の有無のフラグ
+	  SET1(VALUE(%eax));
+	  NILP; je L20B;
+	 POP1;
+	 PUSH1;				/#\の表示
+	  %dl=$SHARP_CHR; PRCHR;
+	  %dl=$YEN_CHR; PRCHR;
+L20B:	 POP1;
+	 !print_chr_to_con;
+	POP1; ret;
+
+print_chr_to_con:
+	PUSH1;
+	 orb %ah,%ah; je L21;		/２バイト文字か？
+	 PUSH1;			 	/高位バイトの表示
+	  %dl=%ah; xor %eax,%eax; %al=%dl; PRCHR;
+	 POP1;		 		/下位バイトの表意
+L21:	 %dl=%al; xor %eax,%eax; %al=%dl; PRCHR;
+	POP1;
+	ret;
+
+/--------------------------------------
+/	＜数値をｎ進数で表示＞
+/
+/	*print-base*に指定された基数に
+/	基づいて数値を出力する
+/--------------------------------------
+@print_number:
+	UNMASK1;
+pnm0:	PUSH2;
+	 SET2(printbaseadr);		/ *print-base* からの基数の読みだし
+	 SET3(VALUE(%ebx));		/%ecx:基数
+	 FIXNUMP3; jne pnmn;		/基数が数字で正しく指定されているか
+	 UNMASK3;			/タグを取る
+	 ?l($MAXBASE,%ecx); jng L22;	/最大の基数を超えないか
+pnmn:	 %ecx=$10;			/表示基数が大きすぎる時
+	 PUSH3;
+	  xorl $NUMBERTAG,%ecx;		/タグを付けなおし、
+	  VALUE(%ebx)=%ecx;		/ *print-base* の値を10にする
+	 POP3;
+L22:	 SET2(printradixadr);		/ *print-radix* 基数を表示するか？
+	 SET2(VALUE(%ebx));		/%ebx:基数表示のフラグ
+	 NILP2; jne L23;
+	POP2; jmp print_number2;	/基数を表示せずに数字表示
+
+L23:	POP2;
+	?l($10,%ecx); jne L24;		/基数を表示する場合、１０進数か
+	!print_number2;			/数字を表示
+	%dl=$DOT_CHR; PRCHR;	 	/数字の後に"."を表示
+	ret;
+
+L24:	PUSH1;				/それ以外の基数の表示
+	 %dl=$SHARP_CHR; PRCHR; 	/"#"を表示
+	 ?l($2,%ecx); jne L25;
+	 %dl=$0x62; PRCHR;	 	/２進数の場合"#b"を表示
+	 jmp pn0;
+
+L25:	 ?l($8,%ecx); jne L26;
+	 %dl=$0x6f; PRCHR;		/８進数の場合"#o"を表示
+	 jmp pn0;
+
+L26:	 ?l($16,%ecx); jne L27;
+	 %dl=$0x78; PRCHR;	 	/１６進数の場合"#x"を表示
+	 jmp pn0;
+
+L27:	 PUSH3; PUSH1;			/それらの基数以外の場合
+	  %ecx=$10; %edi=printbaseadr; %eax=VALUE(%edi);
+	  UNMASK1; !print_number2;	/"#"に続いて基数を表示し、
+	  %dl=$0x72; PRCHR;	 	/"r"を表示する
+	 POP1; POP3;
+pn0:	POP1;				/基数部分表示の終了
+print_number2:
+	?l($10,%ecx); jne L279;		/１０進数か
+	PUSH2;
+	 %ebx=fixnum_form_adr;		/１０進数表示形式が指定されているか？
+	 %ebx=VALUE(%ebx);
+	 STRINGP2;
+	POP2;
+	jne L279;
+	%ebx=fixnum_form_adr;		/１０進数表示形式が指定されている場合
+	%ebx=VALUE(%ebx);
+	<;
+	UNMASK2;
+	PUSH1; PUSH2;			/印字形式の設定
+	pushl $namebuffer;		/バッファの指定
+	!_sprintf;			/バッファへの書き込み
+	>;
+	PRMSG $namebuffer		/バッファからの書き出し
+	ret;
+
+L279:	or %eax,%eax; jne L28;		/表示する数値が０の場合
+	%dl=$0x30; PRCHR;	 	/"0"
+	ret;
+
+L28:	NUMEXTEND;			/符号の拡張
+	bt $31,%eax; jnc L29;		/最上位ビットを見る
+	neg %eax;			/負の場合、符号反転
+	%dl=$MINUS_CHR; PRCHR;	 	/"-"の表示
+L29:	pusha;
+	 xorl %edi,%edi;		/桁のカウンタ初期化
+prna:	 xorl %edx,%edx;
+	 orl %eax,%eax; je prna2;
+L30:	 div %ecx;			/%eax:商 %edx:余り
+	 ?b($9,%dl); jng L31;
+	 addb $0x7,%dl;			/アルファベットへの変換
+L31:	 addb $0x30,%dl;	 	/"0"
+	 %edi++;
+	 PUSH4;
+	  jmp prna;
+
+prna2:	 ?l($0,%edi); je prna3;
+	POP4; PRCHR;
+	%edi--; jmp prna2;
+
+prna3:	popa; ret;
+
+print_floanum:
+	<;
+	UNMASK1; %edx=4(%eax); %eax=(%eax); /%edx:%eax : 浮動小数点数
+	%ebx=floanum_form_adr;		/ *floanum-form* を参照して、
+	%ebx=VALUE(%ebx);
+	STRINGP2; je pf2;		/文字列であれば、それを使う
+	%ebx=$FLOANUM_FORM;		/そうでなければ、標準形式を使う
+	jmp pf3;
+
+pf2:	UNMASK2;
+pf3:	PUSH4; PUSH1; PUSH2;		/印字形式の設定
+	pushl $namebuffer;		/バッファの指定
+	!_sprintf;			/バッファへの書き込み
+	>;
+	PRMSG $namebuffer;		/バッファからの書き出し
+	ret;
+
+
+@print_number_to_memory:		/%eaxをアドレス%ebxから書き込む
+	%ecx=$10;			/十進数
+	or %eax,%eax; jne prnumm1;
+	%dl=$0x30; jmp write_mem;	/"0"
+
+prnumm1:
+	NUMEXTEND;
+	bt $31,%eax; jnc prnumm2;
+	negl %eax;
+	%dl=$MINUS_CHR; !write_mem;	/"-"
+prnumm2:
+	PUSH1; PUSH3; PUSH4;
+	xorl %edi,%edi;			/桁のカウンタ初期化
+prnumm3:
+	xorl %edx,%edx;
+	orl %eax,%eax; je prnumm5;
+	div %ecx;			/%eax:商 %edx:余り
+	?b($9,%dl); jng prnumm4;
+	addb $0x7,%dl;			/アルファベットへの変換
+prnumm4:
+	addb $0x30,%dl;			/"0"
+	%edi++;
+	PUSH4; jmp prnumm3;
+
+prnumm5:
+	 ?l($0,%edi); je prnumm6;
+	POP4;
+	!write_mem;
+	%edi--; jmp prnumm5;
+
+prnumm6:
+	POP4; POP3; POP1; ret;
+
+write_mem:
+	movb %dl,(%ebx); %ebx++; ret;
+
+/--------------------------------------
+/	＜コントロール文字出力＞
+/--------------------------------------
+@__lf:	pusha;				/改行
+	 ?l($PRN,outfile); jg lf2;
+	 %dl=$RET_CHR; PRCHR;
+lf2:	 %dl=$LF_CHR; PRCHR;
+	popa; ret;
+
+@__bell:
+	pusha;				/ベル
+	 %dl=$BELL_CHR; PRCHR;
+	popa; ret;
+
+@__spc:	pusha;				/空白
+	 %dl=$SPC_CHR; PRCHR;
+	popa; ret;
+
+/--------------------------------------
+/	＜ｅａｘを１６進数で表示＞
+/--------------------------------------
+@__preax:
+	pusha;
+	 PUSH1;
+	  shr $16,%eax; !prhax;
+	 POP1;
+	 !prhax;
+	popa; ret;
+
+prhax:	pusha;
+	 PUSH1;
+	  %al=%ah; !prhal;
+	 POP1;
+	 !prhal
+	popa; ret;
+
+prhal:	PUSH1;				/ａｌを１６進数で表示
+	 PUSH1;
+	  %ah=$0; shr $4,%al; !hexch;
+	 POP1;
+	 !hexch;
+	POP1; ret;
+
+hexch:	PUSH1;				/１桁の数値ａｌを１６進文字にして表示
+	 PUSH4;
+	  andb $0x0f,%al;
+	  ?b($9,%al); jng L34;
+	  addb $7,%al;
+L34:	  addb $0x30,%al;
+	  %dl=%al; PRCHR;
+	 POP4;
+	POP1; ret;
+
+/--------------------------------------
+/	＜汎用文字出力＞
+/--------------------------------------
+@__prchr:
+	pusha;				/dl:１文字出力
+	 movb %dl,outchr;		/出力文字の設定
+	 %edx=$outchr; %ecx=$1;		/出力文字数
+	 jmp ps2;
+
+@__prstr:				/スタック上の文字列を表示する
+	popl %edi;			/帰りアドレス
+	popl %esi;			/文字列の取得
+	pushl %edi;			/帰りアドレスの復帰
+	pusha;
+	 %edx=%esi; %ecx=$0;		/出力文字列の位置設定 出力文字数カウント
+ps1:	 cmpb $0,(%esi); je ps2;
+	 %ecx++; %esi++; jmp ps1;
+
+ps2:	 pusha;				/ＤＲＩＢＢＬＥのハンドル番号以上かＣＲＴなら表示
+	  %ebx=outfile;			/出力ファイル指定
+	  ?l($CRT,%ebx); jne ps3;	/画面出力の場合
+	  %ah=$0x40; int DOS;		/システムコール 40H
+	  jc write_err;			/書き込み失敗
+	  jmp ps4;
+
+ps3:	  <;
+	   %eax=outfile; UNMASK1; PUSH1; /ファイル
+	   pushl $1;			/回数
+	   pushl %ecx;			/サイズの指定
+	   pushl %edx;			/表示文字列開始位置
+	   !_fwrite;
+	  >;
+	  ?l(%ecx,%eax); jl WRITE_ERRN;	/書き込み失敗
+ps4:	 popa;				/ＤＲＩＢＢＬＥの書き込みを行うか
+	 !print_to_dribble_file;
+	popa; ret;
+
+print_to_dribble_file:
+	pusha;
+	 %ebx=dribble_file; UNMASK2;	/出力ファイル指定
+	 ?l($0,%ebx); jle ps5;
+	 ?l(outfile,%ebx); je ps5;
+	 <;
+	  PUSH2;			/ファイル
+	  pushl $1;			/回数
+	  pushl %ecx;			/サイズの指定
+	  pushl %edx;			/表示文字列開始位置
+	  !_fwrite;
+	 >;
+	 ?l(%ecx,%eax); jl WRITE_ERRN;	/書き込み失敗
+ps5:	popa; ret;
+
+write_err2:
+	SET1NIL; !l_dribble;
+write_err:
+	cmpw $5,%ax; je WRITE_ERR1;	/アクセスが否定された
+	cmpw $6,%ax; je WRITE_ERR2;	/無効なファイルハンドル
+	cmpw $13,%ax; je WRITE_ERR3;	/ライトプロテクトされている
+	jmp WRITE_ERRN;
+
+/--------------------------------------
+/	エラー処理
+/--------------------------------------
+@NOT_HANDLE_NUMBER_ERR:
+	ERR(14001)
+
+PRINT_LEVEL_ERR:
+	ERR(14010)
+
+PRINT_LENGTH_ERR:
+	ERR(14011)
+
+NUMBER_ERR:
+	ERR(14003)
+
+PRINT_ERR:
+	ERR(14002)
+
+NOT_CHARACTER_ERR:
+	ERR(14004)
+
+WRITE_ERR1:
+	ERR(14005)
+
+WRITE_ERR2:
+	ERR(14006)
+
+WRITE_ERR3:
+	ERR(14007)
+
+WRITE_ERRN:
+	ERR(14008)
+
+/--------------------------------------
+/	定数領域
+/--------------------------------------
+	ALIGN
+DOTS:		asz	" ..."
+	ALIGN
+CONT:		asz	" #"
+	ALIGN
+ARRAY_MSG:	asz	"<array>"
+	ALIGN
+FIXNUM_FORM:	str	"%d\0"		/整数のデフォルトの表示形式
+	ALIGN
+FLOANUM_FORM:	str	"%f\0"		/浮動小数点のデフォルトの表示形式
+
+/--------------------------------------
+/	変数領域
+/--------------------------------------
+
+	.data				/恐らくはasのバグのために２度必要
+	.data
+	ALIGN
+@outfile:	dd	0
+outchr:		dd	0
+
+print_length:	dd	0
+print_level:	dd	0
+#

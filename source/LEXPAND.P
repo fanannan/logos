@@ -1,0 +1,436 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.53
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/	メモリ拡張処理モジュール
+/======================================
+
+	.file		"lexpand.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+@l_expand:
+	SYMBOLP; jne NOT_SYMBOL_ERR;
+	NILP2; je ep1;
+	FIXNUMP2; je ep1;
+	SET1_2; jmp NOT_INTEGER_ERR;
+
+ep1:	UNMASK1; UNMASK2; xchg %eax,%ebx;
+	%eax+=$15; andl $0xfffffff0,%eax; /１６バイト単位にする
+	?l(consadr,%ebx); je ep3;
+	?l(arrayadr,%ebx); je ep4;
+	?l(structadr,%ebx); je ep5;
+	?l(floanumadr,%ebx); je ep6;
+	?l(stringadr,%ebx); je ep7;
+	SET1_2; xorl $SYMBOLTAG,%eax;
+	jmp EXPAND_ERR;
+
+ep3:	?l($0,%eax); je expand_cell;
+	?l(size_of_cell,%eax); jle SETNIL; /獲得するメモリの量
+	jmp expand_cell2;
+
+ep4:	?l($0,%eax); je expand_array;
+	?l(size_of_array,%eax); jle SETNIL; /獲得するメモリの量
+	jmp expand_array2;
+
+ep5:	?l($0,%eax); je expand_struct;
+	?l(size_of_struct,%eax); jle SETNIL; /獲得するメモリの量
+	jmp expand_struct2;
+
+ep6:	?l($0,%eax); je expand_floanum;
+	?l(size_of_floanum,%eax); jle SETNIL; /獲得するメモリの量
+	jmp expand_floanum2;
+
+ep7:	?l($0,%eax); je expand_string;
+	?l(size_of_string,%eax); jle SETNIL; /獲得するメモリの量
+	jmp expand_string2;
+
+/--------------------------------------
+/	＜コンス領域の拡張＞
+/--------------------------------------
+@expand_cell:
+	%eax=size_of_cell; %eax+=%eax;	/新たに獲得するメモリの大きさ
+expand_cell2:
+	!get_new_memory;		/メモリの獲得
+	temparea=%eax; tempsize=%ebx;	/新たな領域の開始位置
+	%ebx+=%eax; tempend=%ebx;	/新たな終了位置
+	%esi=cellarea; %edi=%eax;	/転送位置
+	%ecx=freecell; %ecx-=cellarea;	/転送量
+	cld; rep; movsb;		/新たな領域へデータを転送
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(consadr); !set_type;	/データ型
+	%ebx=cellarea; !set_diffe;	/コンス領域とＧＢＣ作業領域との距離
+	!change_consdata_in_atom;	/アトム内データの書き直し
+	!change_consdata_in_array;	/配列内データの書き直し
+	!change_consdata_in_struct;	/構造体内データの書き直し
+	!change_consdata_in_stack;	/スタック内データの書き直し
+	!change_consdata_in_cons;	/コンス内データの書き直し
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+	<; pushl cellarea; !_free; >;	/旧メモリ領域の開放
+	%eax=gbcend; %eax-=gbcarea;	/ＧＢＣ領域は十分な大きさがあるか？
+	?l(tempsize,%eax); jg ec2;
+	!expand_gbc;
+ec2:	%eax=temparea; cellarea=%eax;	/領域へのポインタの書き直し
+	%eax=freecell; %eax+=diffe; freecell=%eax;
+	%eax=tempend; cellend=%eax;
+	%eax-=cellarea; size_of_cell=%eax;
+	jmp SETNUM;
+
+/======================================
+/	＜配列領域の拡張＞
+/======================================
+@expand_array:
+	%eax=size_of_array; %eax+=%eax;	/新たに獲得するメモリの大きさ
+expand_array2:
+	!get_new_memory;		/メモリの獲得
+	temparea=%eax; tempsize=%ebx;	/新たな領域の開始位置
+	%ebx+=%eax; tempend=%ebx;	/新たな終了位置
+	%esi=arrayarea; %edi=%eax;	/転送位置
+	%ecx=arraytop; %ecx-=arrayarea;	/転送量
+	cld; rep; movsb;		/新たな領域へデータを転送
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(arrayadr); !set_type;	/データ型
+	%ebx=arrayarea; !set_diffe;	/コンス領域とＧＢＣ作業領域との距離
+	%edi=$ARRAYTAG; !changes;	/データの書き直し
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+	<; pushl arrayarea; !_free; >;	/旧メモリ領域の開放
+	%eax=gbcend; %eax-=gbcarea;	/ＧＢＣ領域は十分な大きさがあるか？
+	?l(tempsize,%eax); jg ac2;
+	!expand_gbc;
+ac2:	%eax=temparea; arrayarea=%eax;	/領域へのポインタの書き直し
+	%eax=arraytop; %eax+=diffe; arraytop=%eax;
+	%eax=tempend; arrayend=%eax;
+	%eax-=arrayarea; size_of_array=%eax;
+	jmp SETNUM;
+
+/======================================
+/	＜構造体領域の拡張＞
+/======================================
+@expand_struct:
+	%eax=size_of_struct; %eax+=%eax; /新たに獲得するメモリの大きさ
+expand_struct2:
+	!get_new_memory;		/メモリの獲得
+	temparea=%eax; tempsize=%ebx;	/新たな領域の開始位置
+	%ebx+=%eax; tempend=%ebx;	/新たな終了位置
+	%esi=structarea; %edi=%eax;	/転送位置
+	%ecx=structtop; %ecx-=structarea; /転送量
+	cld; rep; movsb;		/新たな領域へデータを転送
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(structadr); !set_type;	/データ型
+	%ebx=structarea; !set_diffe;	/コンス領域とＧＢＣ作業領域との距離
+	%edi=$STRUCTTAG; !changes;	/データの書き換え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+	<; pushl structarea; !_free; >;	/旧メモリ領域の開放
+	%eax=gbcend; %eax-=gbcarea;	/ＧＢＣ領域は十分な大きさがあるか？
+	?l(tempsize,%eax); jg su2;
+	!expand_gbc;
+su2:	%eax=temparea; structarea=%eax;	/領域へのポインタの書き直し
+	%eax=structtop; %eax+=diffe; structtop=%eax;
+	%eax=tempend; structend=%eax;
+	%eax-=structarea; size_of_struct=%eax;
+	jmp SETNUM;
+
+/======================================
+/	＜浮動小数点数領域の拡張＞
+/======================================
+@expand_floanum:
+	%eax=size_of_floanum; %eax+=%eax; /新たに獲得するメモリの大きさ
+expand_floanum2:
+	!get_new_memory;		/メモリの獲得
+	temparea=%eax; tempsize=%ebx;	/新たな領域の開始位置
+	%ebx+=%eax; tempend=%ebx;	/新たな終了位置
+	%esi=floanumarea; %edi=%eax;	/転送位置
+	%ecx=floanumtop; %ecx-=floanumarea; /転送量
+	cld; rep; movsb;		/新たな領域へデータを転送
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(floanumadr); !set_type;	/データ型
+	%ebx=floanumarea; !set_diffe;	/コンス領域とＧＢＣ作業領域との距離
+	%edi=$FLOATTAG; !changes;	/データの書き換え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+	<; pushl floanumarea; !_free; >; /旧メモリ領域の開放
+	%eax=gbcend; %eax-=gbcarea;	/ＧＢＣ領域は十分な大きさがあるか？
+	?l(tempsize,%eax); jg fl2;
+	!expand_gbc;
+fl2:	%eax=temparea; floanumarea=%eax; /領域へのポインタの書き直し
+	%eax=floanumtop; %eax+=diffe; floanumtop=%eax;
+	%eax=tempend; floanumend=%eax;
+	%eax-=floanumarea; size_of_floanum=%eax;
+	jmp SETNUM;
+
+/======================================
+/	＜文字列領域の拡張＞
+/======================================
+@expand_string:
+	%eax=size_of_string; %eax+=%eax; /新たに獲得するメモリの大きさ
+expand_string2:
+	!get_new_memory;		/メモリの獲得
+	temparea=%eax; tempsize=%ebx;	/新たな領域の開始位置
+	%ebx+=%eax; tempend=%ebx;	/新たな終了位置
+	%esi=stringarea; %edi=%eax;	/転送位置
+	%ecx=stringtop; %ecx-=stringarea; /転送量
+	cld; rep; movsb;		/新たな領域へデータを転送
+	soft_stack_reserve=%ebp;	/ソフトウェアスタックの退避
+	SET1(stringadr); !set_type;	/データ型
+	%ebx=stringarea; !set_diffe;	/コンス領域とＧＢＣ作業領域との距離
+	%edi=$STRINGTAG; !changes;	/データの書き換え
+	%ebp=soft_stack_reserve;	/ソフトウェアスタックの回復
+	<; pushl stringarea; !_free; >; /旧メモリ領域の開放
+	%eax=gbcend; %eax-=gbcarea;	/ＧＢＣ領域は十分な大きさがあるか？
+	?l(tempsize,%eax); jg sr2;
+	!expand_gbc;
+sr2:	%eax=temparea; stringarea=%eax; /領域へのポインタの書き直し
+	%eax=stringtop; %eax+=diffe; stringtop=%eax;
+	%eax=tempend; stringend=%eax;
+	%eax-=stringarea; size_of_string=%eax;
+	jmp SETNUM;
+
+/======================================
+/	アトムからの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+change_consdata_in_atom:		/アトム内データの書き直し
+	%ebx=symbolarea;	 	/チェック開始位置
+mcfa1:	%eax=VALUE(%ebx);
+	CELLP; jne mcfa2;		/シンボルの値がセルの時
+	leal VALUE(%ebx),%ecx; !c1;
+mcfa2:	%eax=PLIST(%ebx);
+	CELLP; jne mcfa3;		/ＰＬＩＳＴが設定されている時
+	PUSH1;
+	 leal PLIST(%ebx),%ecx; !c1;
+	POP1;
+	!mark_cell_in_compiled_code;
+mcfa3:	%eax=FUNCTYPE(%ebx);		/ユーザー関数が定義されている時
+	?b($EXPR,%ah); je mcfa4;
+	?b($FEXPR,%ah); je mcfa4;
+	?b($MACRO,%ah); jne mcfa5;
+mcfa4:	%eax=FUNCTION(%ebx); CELLP; jne mcfa5;
+	leal FUNCTION(%ebx),%ecx; !c1;
+mcfa5:	%ebx+=$ATOMNAME;		/シンボルを１つ終えて次に移る
+mcfa6:	%al=(%ebx); %ebx++;		/文字列の終端チェック
+	orb %al,%al; jne mcfa6;
+	?l(symboltop,%ebx); jb mcfa1;
+	ret;
+
+mark_cell_in_compiled_code:
+	PUSH2;
+	 SET2_1; SET1(gbc_type);	/作業中のＧＢＣの型
+	 !l_member; NILP; je mdfa7;
+	 CDR; CAR;			/コンパイルされたコード中のデータリスト
+mdfa61:	 PUSH1;				/もし同じ型があればそのアドレスを記録
+	  CAR; FIXNUMP; jne mdfa8;
+	  UNMASK1; SET3_1; SET1((%ecx)); !c1;
+mdfa8:	 POP1; CDR; NILP; jne mdfa61;
+mdfa7:	POP2; ret;
+
+c1:	%eax+=diffe; (%ecx)=%eax; ret;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+change_data_in_atom:			/アトム内データの書き直し %edi : チェックする型
+	%ebx=symbolarea;	 	/チェック開始位置
+mfa1:	%eax=VALUE(%ebx);		/値のチェック
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfa2;			/該当しない時
+	leal VALUE(%ebx),%ecx; !c1;
+mfa2:	%eax=PLIST(%ebx);		/ＰＬＩＳＴのチェック
+	CELLP; je mfa5;
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfa3;
+	leal PLIST(%ebx),%ecx; !c1;
+mfa3:	%ebx+=$ATOMNAME;		/シンボルを１つ終えて次に移る
+mfa4:	%al=(%ebx); %ebx++;		/文字列の終端チェック
+	orb %al,%al; jne mfa4;
+	?l(symboltop,%ebx); jb mfa1;
+	ret;
+
+mfa5:	PUSH2;
+	 SET2_1; SET1(gbc_type);	/作業中のＧＢＣの型
+	 !l_member; NILP; je mfa7;
+	 CDR; CAR;			/コンパイルされたコード中のデータリスト
+mfa61:	 PUSH1;				/もし同じ型があればそのアドレスを記録
+	  CAR; FIXNUMP; jne mfa8;
+	  UNMASK1; SET3_1; SET1((%ecx)); !c1;
+mfa8:	 POP1; CDR; NILP; jne mfa61;
+mfa7:	POP2; jmp mfa3;
+
+/======================================
+/	配列領域からの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+change_consdata_in_array:		/配列内データの書き直し
+	%ebx=arrayarea; %ecx=arraytop;
+mfa:	%ebx+=$4;			/配列の一つめはコンスではない
+	?l(%ecx,%ebx); jb mfae;		/配列の終わりか？
+	ret;
+
+mfae:	%eax=(%ebx);			/配列の内容がセルか？
+	?l(cellarea,%eax); jb mfa;	/セルのアドレスより小さい場合（要素数など）
+	?l(cellend,%eax); ja mfa;	/セルのアドレスより大きい場合（配列など）
+	%eax+=diffe; (%ebx)=%eax; jmp mfa;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+change_data_in_array:			/配列内データの書き直し
+	?l($ARRAYTAG,%edi); jne mfar0;
+	%ebx=temparea; %ecx=arraytop; %ecx-=arrayarea; %ecx+=%ebx;
+	jmp mfar1;
+
+mfar0:	%ebx=arrayarea; %ecx=arraytop;
+mfar1:	%ebx+=$4;			/配列の一つめはチェック不要
+	?l(%ecx,%ebx); jb mfar3;
+	ret;
+
+mfar3:	%eax=(%ebx);
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfar1;
+	%eax+=diffe; (%ebx)=%eax; jmp mfar1;
+
+/======================================
+/	構造体領域からの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+change_consdata_in_struct:		/構造体内データの書き直し
+	%ebx=structarea; %ecx=structtop; jmp mfa
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+change_data_in_struct:			/構造体内データの書き直し
+	?l($STRUCTTAG,%edi); jne mfsc0;
+	%ebx=temparea; %ecx=structtop; %ecx-=structarea; %ecx+=%ebx;
+	jmp mfar1;
+
+mfsc0:	%ebx=structarea; %ecx=structtop;
+	jmp mfar1;
+
+/======================================
+/	ソフトウェアスタックからの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+change_consdata_in_stack:		/スタック内データの書き直し
+	%ebx=soft_stack_reserve;	/スタックの検査開始位置(作業開始前のスタック位置)
+cfs1:	?l(stackarea,%ebx); jne cfs2;	/スタック検査終了か(ひとつめのスタックはチェック不要)
+	ret;
+
+cfs2:	%ebx-=$4;			/ひとつ前のスタックへ移る
+	%eax=(%ebx);			/スタック内容がセルか？
+	?l(cellarea,%eax); jb cfs1;	/セルのアドレスより小さい場合（束縛印）
+	CELLP; jne cfs1;
+	%eax+=diffe; (%ebx)=%eax; jmp cfs1;
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+change_data_in_stack:			/スタック内データの書き直し
+	%ebx=soft_stack_reserve;	/スタックの検査開始位置(ＧＢＣ開始前のスタック位置)
+mfs1:	?l(stackarea,%ebx); jne mfs2;	/スタック検査終了か(ひとつめのスタックはチェック不要)
+	ret;
+
+mfs2:	%ebx-=$4; %eax=(%ebx);		/ひとつ前のスタックへ移る
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mfs1;			 /該当するか？
+	%eax+=diffe; (%ebx)=%eax; jmp mfs1;
+
+/======================================
+/	コンス領域からの探索
+/======================================
+/--------------------------------------
+/	セル
+/--------------------------------------
+change_consdata_in_cons:		/コンス内データの書き直し
+	%esi=temparea; %ebx=freecell; %ebx+=diffe;
+chgc1:	?l(%ebx,%esi); jb chgc2;	/全て書き換えたか？
+	ret;
+
+chgc2:	%eax=(%esi); CELLP; jne chgc3;
+	%eax+=diffe; (%esi)=%eax;	/書き直し
+chgc3:	%esi+=$4; jmp chgc1;		/car と cdr の両方
+
+/--------------------------------------
+/	汎用
+/--------------------------------------
+change_data_in_cons:			/コンス内データの書き直し
+	%esi=cellarea; %ebx=freecell; %ebx+=diffe;
+mhgc1:	?l(%ebx,%esi); jb mhgc2;	/全て書き換えたか？
+	ret;
+
+mhgc2:	%eax=(%esi);
+	PUSH1; andl $MASK,%eax; ?l(%edi,%eax); POP1;
+	jne mhgc3;
+	%eax+=diffe; (%esi)=%eax;	/書き直し
+mhgc3:	%esi+=$4; jmp mhgc1;		/car と cdr の両方
+
+/======================================
+/	＜領域の拡張＞
+/======================================
+get_new_memory:
+	PUSH1;
+	 <; PUSH1; !_malloc; >;		/メモリの獲得
+	 ?l($0,%eax);
+	POP2; jle MEMORY_OUT_ERR;	/獲得失敗
+	PUSH1; PUSH2;
+	 %eax+=%ebx;
+	 ?l($0x0fffffff,%eax); jg MEMORY_OUT_ERR;
+	POP2; POP1;
+	ret;
+
+/======================================
+/	＜ＧＢＣ領域の拡張＞
+/======================================
+expand_gbc:				/ＧＢＣ領域の拡張
+	<; pushl gbcarea; !_free; >;	/旧ＧＢＣ用メモリの開放
+	%eax=tempsize;
+	!get_new_memory;
+	gbcarea=%eax; %eax+=%ebx; gbcend=%eax;
+	ret;
+
+/======================================
+/	汎用書き換え処理
+/======================================
+changes:
+	!change_data_in_cons;		/コンス内データの書き直し
+	!change_data_in_atom;		/アトム内データの書き直し
+	!change_data_in_array;		/配列内データの書き直し
+	!change_data_in_struct;		/構造体内データの書き直し
+	jmp change_data_in_stack;	/スタック内データの書き直し
+
+/--------------------------------------
+/	新旧領域距離設定
+/--------------------------------------
+set_diffe:				/対象領域と新作業領域との距離を設定
+	%eax=temparea; %eax-=%ebx; 	/%ebx : 対象領域の開始位置
+	diffe=%eax; ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+EXPAND_ERR:
+	ERR(2010);			/メモリを拡張できないものが指定された時
+
+MEMORY_OUT_ERR:				/メモリの獲得に失敗した時
+	ERR(2011);
+
+/======================================
+/	データ領域
+/======================================
+temparea:	dd	0		/新領域の位置
+tempend:	dd	0		/新領域の終了位置
+tempsize:	dd	0		/新領域の大きさ
+diffe:		dd	0		/新領域と旧領域のアドレス指示データ
+soft_stack_reserve:
+		dd	0		/ソフトウェアスタック退避領域
+

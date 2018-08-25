@@ -1,0 +1,247 @@
+﻿/======================================
+/
+/　リスプインタプリタλογοσ v0.50
+/　　澤田高宏(NIFTY:PFE02147)謹製
+/
+/コモンリスプ第１０章「シンボル」に対応
+/======================================
+
+	.file	"lsymbol.p"
+	.text
+#include	"logos.inc"
+
+/--------------------------------------
+/	＜ＧＥＴ＞
+/	CLtL2 S10-208
+/--------------------------------------
+@l_get:	!l_symbol_plist
+get0:	NILP; je get1;
+	PUSH1;
+	 CAR; ?l(%ebx,%eax); je get2;
+	POP1; CDR; CDR; jmp get0;
+
+get1:	SET1_3; ret;
+
+get2:	POP1; CDR; jmp l_car
+
+/--------------------------------------
+/	＜ＲＥＭＰＲＯＰ＞
+/	CLtL2 S10-209
+/--------------------------------------
+@l_remprop:
+	SET4_1; !l_symbol_plist; SET3NIL;
+	NILP; jne remp0;
+remp:	ret;
+
+remp0:	PUSH1;
+	 CAR; ?l(%ebx,%eax);
+	POP1; je remp2;
+remp1:	NILP; je remp;
+	PUSH1;
+	 CAR; ?l(%ebx,%eax);
+	POP1; je remp3;
+	CDR; SET3_1; CDR; jmp remp1;
+
+remp2:	CDR; CDR; UNMASK4; PLIST(%edx)=%eax; ret;
+
+remp3:	CDR; CDR; SET2_1; SET1_3; jmp l_rplacd;
+
+/--------------------------------------
+/	＜ＳＹＭＢＯＬ−ＰＬＩＳＴ＞
+/	CLtL2 S10-210
+/--------------------------------------
+@l_symbol_plist:
+	SYMBOLP; jne SYMBOL_PLIST_ERR;
+	UNMASK1; SET1(PLIST(%eax));
+	UNKP; je SETNIL;
+	ret;
+
+/--------------------------------------
+/	＜ＰＵＴ＞
+/--------------------------------------
+@l_put:	SPUSH2;
+	 SYMBOLP; jne NOT_SYMBOL_ERR;
+	 UNMASK1;
+	 SPUSH1;
+	  SET1(PLIST(%eax));
+	  UNKP; jne put1;
+	  SET1NIL;
+put1:	  SPUSH2;
+	   SET2_1; SET1_3; !l_cons; SET2_1;
+	  SPOP1;
+	  !l_cons;
+	 SPOP2;
+	 PLIST(%ebx)=%eax;
+	SPOP1; ret;
+
+/--------------------------------------
+/	＜ＳＥＴ−ＰＬＩＳＴ＞
+/--------------------------------------
+@l_set_plist:
+	SYMBOLP; jne NOT_SYMBOL_ERR;
+	UNMASK1; PLIST(%eax)=%ebx; SET1_2;
+	ret;
+
+/--------------------------------------
+/	＜ＧＥＴＦ＞
+/	CLtL2 S10-210
+/--------------------------------------
+@l_getf:
+	jmp get0;
+
+/*	NILP; je get1;
+	PUSH1;
+	 CAR; ?l(%ebx,%eax); je get2;
+	POP1; CDR; CDR; jmp get0;
+*/
+
+/--------------------------------------
+/	＜ＲＥＭＦ＞
+/	CLtL2 S10-211
+/--------------------------------------
+/*
+@l_remf:
+	SET4_1; SET3NIL; NILP; jne remp0;
+	ret;
+*/
+
+/--------------------------------------
+/	＜ＳＹＭＢＯＬ−ＮＡＭＥ＞
+/--------------------------------------
+@l_symbol_name:
+	SYMBOLP; jne SYMBOL_NAME_ERR;
+	UNMASK1; %eax+=$ATOMNAME;	/シンボルの印字名位置
+	PUSHBUFFER;
+	 !init_buffer_pointer;
+	 !copy_string_with_esc_code;
+	 movb $STR_SEPARATER,(%ebx);	/文字列終端
+	 %ebx++; movb $0,(%ebx);
+	 !read_string;
+	POPBUFFER;
+	ret;;
+
+copy_string_with_esc_code:
+	%cl=(%eax); ?b($0,%cl); jne cswec1;
+	ret;
+
+cswec1:	?b($ESC_CHR,%cl); je cswec3;
+	?b($RET_CHR,%cl); je cswec3;	/エスケープ文字の埋め込み
+	?b($LF_CHR,%cl); je cswec3;
+	?b($HT_CHR,%cl); je cswec3;
+	?b($SPC_CHR,%cl); je cswec3;
+	?b($LPAR_CHR,%cl); je cswec3;
+	?b($RPAR_CHR,%cl); je cswec3;
+	?b($QUOTE_CHR,%cl); je cswec3;
+	?b($REM_CHR,%cl); je cswec3;
+	?b($STR_SEPARATER,%cl); je cswec3;
+cswec2:	movb %cl,(%ebx); %eax++; %ebx++;
+	jmp copy_string_with_esc_code;
+
+cswec3:	movb $ESC_CHR,(%ebx); %ebx++;
+	jmp cswec2;
+
+/--------------------------------------
+/	＜ＭＡＫＥ−ＳＹＭＢＯＬ＞
+/--------------------------------------
+@l_make_symbol:
+	STRINGP; jne MAKE_SYMBOL_ERR;
+	UNMASK1;
+	PUSHBUFFER;
+	 !init_buffer_pointer; %ebx=$namebuffer;
+	 PUSH2;
+	  !copy_string_with_esc_code;
+	  movb $0,(%ebx);		/文字列終端
+	 POP2; !culc_atom_adr;
+	POPBUFFER;
+	ret;
+
+/--------------------------------------
+/	＜ＧＥＮＳＹＭ＞
+/--------------------------------------
+@l_gensym:
+	PUSHBUFFER;
+	 !init_buffer_pointer; %ebx=$namebuffer;
+
+	 STRINGP; je gensym1;		/文字列が指定されているか
+	 NILP; je gensym2;		/デフォルト文字列"G"か
+	 jmp GENSYM_STRING_ERR;
+
+gensym1: UNMASK1;			/文字列の印字名位置
+	 !copy_string_with_esc_code; jmp gensym3;
+
+gensym2: %cl=$0x47; movb %cl,(%ebx);	/"G"
+	 %ebx++;
+
+gensym3: %ecx=gensym_counter_adr;	/内部カウンタの読み込み
+	 %eax=VALUE(%ecx); UNMASK1;
+	 PUSH3; PUSH1;
+	  !print_number_to_memory;
+	 POP1; POP3;
+	 %eax++; !SETNUM; VALUE(%ecx)=%eax;	/内部カウンタの更新
+	 movb $0,(%ebx);		/文字列終端
+	 %ebx=$namebuffer; !culc_atom_adr
+	POPBUFFER;
+	ret;
+
+/--------------------------------------
+/	＜ＰＡＣＫ＞
+/--------------------------------------
+@l_pack:				/１引数で呼び出すとpack、多引数ではpack*
+	PUSHBUFFER;
+	 !init_buffer_pointer; %ebx=$namebuffer;
+	 PUSH2;
+packa0:	  PUSH1;
+	   CAR; SYMBOLP; jne PACK_ERR;
+	   UNMASK1; %eax+=$ATOMNAME;
+	   !copy_string_with_esc_code;
+	   movb $0,(%ebx);
+	  POP1;
+	  CDR; NILP; jne packa0;
+	 POP2; !culc_atom_adr;
+	POPBUFFER;
+	ret;
+
+/--------------------------------------
+/	＜ＵＮＰＡＣＫ＞
+/--------------------------------------
+@l_unpack:
+	!l_symbol_name; !l_string_to_list;
+	SET2NIL;
+unpack2:
+	SPUSH1; SPUSH2;
+	  CAR; !l_character_to_string; !l_make_symbol;
+	 SPOP2;
+	 !l_cons; SET2_1;
+	SPOP1; CDR; NILP; jne unpack2;
+	SET1_2; jmp l_reverse;
+
+/--------------------------------------
+/	＜ＯＢＬＩＳＴ＞
+/--------------------------------------
+@l_oblist:
+	SET1NIL; %ecx=symbolarea; 	/チェック開始位置
+cchai:	SET2_1; SET1_3; xorl $SYMBOLTAG,%eax; !l_cons; 
+	%ecx+=$ATOMNAME;		/シンボルを１つ終えて次に移る
+csna:	%dl=(%ecx); %ecx++;		/文字列の終端チェック
+	orb %dl,%dl; jne csna;
+	?l(symboltop,%ecx); jb cchai;
+	ret;
+
+/======================================
+/	エラー処理領域
+/======================================
+SYMBOL_PLIST_ERR:
+	ERR(8001)
+
+PACK_ERR:
+	ERR(4008)
+
+SYMBOL_NAME_ERR:
+	ERR(4017)
+
+MAKE_SYMBOL_ERR:
+	ERR(4018)
+
+GENSYM_STRING_ERR:
+	ERR(4019)
+

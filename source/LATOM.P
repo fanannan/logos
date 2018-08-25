@@ -1,0 +1,1728 @@
+﻿/======================================
+/
+/	λογοσ v0.50
+/	アトム領域モジュール
+/
+/	本ファイルは最後にリンクされる
+/
+/======================================
+
+	.file	"latom.p"
+	.text
+#include	"logos.inc"
+
+/======================================
+/	プログラム本体
+/======================================
+@textend:				/プログラム領域終了ラベル
+
+/======================================
+/	データ本体
+/======================================
+	.data
+
+@atomtable:
+@niladr:	dd	0,nil_			/nilの位置
+@unkadr:	dd	0,unk_			/unkの位置
+@eofadr:	dd	0,eof_			/eofの位置
+@tadr:		dd	0,t_			/tの位置
+@elseadr:	dd	0,else_
+@otherwiseadr:	dd	0,otherwise_
+
+@lambda_adr:	dd	0,lambda_
+@andrestadr:	dd	0,andrest_
+
+@plus1adr:	dd	0,plus1_
+@plus2adr:	dd	0,plus2_
+@plus3adr:	dd	0,plus3_
+@minus1adr:	dd	0,minus1_
+@mult1adr:	dd	0,mult1_
+@mult2adr:	dd	0,mult2_
+@mult3adr:	dd	0,mult3_
+
+@trace1_adr:	dd	0,trace1_
+@trace2_adr:	dd	0,trace2_
+@trace3_adr:	dd	0,trace3_
+@traced_functions_adr:
+		dd	0,traced_functions_
+@debug_adr:	dd	0,debug_
+
+@read_eval_adr:	dd	0,read_eval_
+@console_mode_adr:
+		dd	0,console_mode_
+
+@car_nil_adr:	dd	0,car_nil_
+
+@read_adr:	dd	0,read_
+@write_adr:	dd	0,write_
+@io_adr:	dd	0,io_
+@append_adr:	dd	0,append_
+@text_adr:	dd	0,text_
+@binary_adr:	dd	0,binary_
+
+@verboseadr:	dd	0,verbose_
+@gbc_up_message_adr:
+		dd	0,gbc_up_message_
+@gcctradr:	dd	0,gccctr_
+@auto_memory_expansion_adr:
+		dd	0,auto_memory_expansion_
+
+@gensym_label_adr:	dd	0,gensym_label_
+@gensym_counter_adr:	dd	0,gensym_counter_
+
+@promptadr:		dd	0,prompt_
+@parencounteradr: 	dd	0,parencounter_
+@manual_file_adr: 	dd	0,manual_file_
+@err_header_adr:	dd	0,err_header_
+@err_file_adr:		dd	0,err_file_
+
+@readbaseadr:		dd	0,readbase_
+@printbaseadr:		dd	0,printbase_
+@printradixadr:		dd	0,printradix_
+
+@print_pretty_adr:	dd	0,print_pretty_
+@print_level_adr:	dd	0,print_level_
+@print_length_adr:	dd	0,print_length_
+
+
+@inputechoadr:		dd	0,inputecho_
+@load_print_adr:	dd	0,load_print_
+@load_verbose_adr:	dd	0,load_verbose_
+
+@print_array_adr:	dd	0,print_array_
+@print_paren_adr:	dd	0,print_paren_
+@print_escape_adr:	dd	0,print_escape_
+@print_case_adr:	dd	0,print_case_
+@upcase_adr:		dd	0,upcase_
+@downcase_adr:		dd	0,downcase_
+@capitalize_adr:	dd	0,capitalize_
+@fixnum_form_adr: 	dd	0,fixnum_form_
+@floanum_form_adr: 	dd	0,floanum_form_
+@redo_adr:		dd	0,redo_
+
+@symboladr:	dd	0,symbol_
+@subradr:	dd	0,subr_
+@fsubradr:	dd	0,fsubr_
+@expradr:	dd	0,expr_
+@fexpradr:	dd	0,fexpr_
+@macroadr:	dd	0,macro_
+@fixnumadr:	dd	0,fixnum_
+@floanumadr:	dd	0,floanum_
+@stringadr:	dd	0,string_
+@characteradr:	dd	0,character_
+@arrayadr:	dd	0,array_
+@structadr:	dd	0,struct_
+@consadr:	dd	0,cons_
+@listadr:	dd	0,list_
+@nulladr:	dd	0,null_
+@registersadr:	dd	0,registers_
+
+@quoteadr:	dd	0,quote_
+@functionadr:	dd	0,function_
+@backquoteadr:	dd	0,backquote_
+@commaadr:	dd	0,comma_
+@atmarkadr:	dd	0,atmark_
+
+@screen_size_adr:	dd	0,screen_size_
+
+@regstart_adr:	dd	0,regstart_
+@regend_adr:	dd	0,regend_
+
+@element_type_adr:	dd	0,element_type_
+@initial_element_adr:	dd	0,initial_element_
+@initial_contents_adr:	dd	0,initial_contents_
+@displaced_to_adr:	dd	0,displaced_to_
+@displaced_index_offset_adr:
+			dd	0,displaced_index_offset_
+
+@default_error_file_adr:
+		dd	0,default_error_file_
+@swfault_manual_file_adr:
+		dd	0,default_manual_file_
+@default_log_file_adr:	dd	0,default_log_file_
+@default_image_file_adr:
+			dd	0,default_image_file_
+@init_file_adr:		dd	0,init_file_
+
+			dd	0,0		/ATOMADR:HTLE終了の印
+
+/--------------------------------------
+/　　　＜デフォルト組み込みアトム＞
+/--------------------------------------
+
+	public	defatom
+defatom:
+
+/※定数／一部の特殊形式
+
+nil_:	str	"nil"
+	dd	NILTAG,UNKTAG,UNKTAG,CONST
+unk_:	str	"unk"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+eof_:	str	"eof"
+	dd	EOFTAG,UNKTAG,UNKTAG,CONST
+t_:	str	"t"
+	dd	0,UNKTAG,UNKTAG,CONST
+else_:	str	"else"
+	dd	0,UNKTAG,UNKTAG,CONST
+otherwise_: str	"otherwise"
+	dd	0,UNKTAG,UNKTAG,CONST
+
+lambda_: str	"lambda"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+andrest_: str	"&rest"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+plus1_:	str	"+"
+	dd	UNKTAG,UNKTAG,l_plus,SUBRN
+plus2_:	str	"++"
+	dd	UNKTAG,UNKTAG,l_inc,SUBR1
+plus3_:	str	"+++"
+	dd	UNKTAG,UNKTAG,UNKTAG,SPECIAL
+minus1_:
+	str	"-"
+	dd	UNKTAG,UNKTAG,l_minus,SUBRN
+mult1_:	str	"*"
+	dd	UNKTAG,UNKTAG,l_mul,SUBRN
+mult2_:	str	"**"
+	dd	UNKTAG,UNKTAG,UNKTAG,SPECIAL
+mult3_:	str	"***"
+	dd	UNKTAG,UNKTAG,UNKTAG,SPECIAL
+
+redo_:	str	"*redo-list*"
+	dd	NILTAG,UNKTAG,UNKTAG,SPECIAL
+
+verbose_: str	"*gc-flag*"			/ガーベジコレクタ起動表示フラグ
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+gbc_up_message_:
+	str	"*gc-message*"			/ガーベジコレクタ起動表示
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+gccctr_: str	"*gc-counter*"			/ガーベジコレクタ起動回数
+	dd	NUMBERTAG,UNKTAG,UNKTAG,UNKTAG
+auto_memory_expansion_:
+	str	"*auto-memory-expansion*"	/自動メモリ拡張フラグ
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+trace1_:
+	str	"*trace-function-message*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+trace2_:
+	str	"*trace-argments-message*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+trace3_:
+	str	"*trace-result-message*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+traced_functions_:
+	str	"*traced-functions*"
+	dd	NILTAG,UNKTAG,UNKTAG,CONST	/定数扱いとし、勝手に書き換えられなくする
+debug_:
+	str	"*debug*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+read_eval_:
+	str	"*read-eval*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+console_mode_:
+	str	"*console-mode*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+car_nil_:
+	str	"*car-of-nil*"			/(car nil)をエラーにするか
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+gensym_label_:					/gensymsの接頭詞
+	str	"*gensym-label*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+gensym_counter_:
+	str	"*gensym-counter*"		/gensymsの番号
+	dd	NUMBERTAG,UNKTAG,UNKTAG,UNKTAG
+
+prompt_: str	"*prompt*"			/プロンプト
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+manual_file_:
+	str	"*manual-file*"			/マニュアルのファイル
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+err_header_:
+	str	"*error-header*"		/エラーヘッダー
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+err_file_:
+	str	"*error-message-file*"		/エラーメッセージのファイル
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+
+readbase_: str	"*read-base*"			/デフォルトの基数は１０
+	dd	NUMBERTAG,UNKTAG,UNKTAG,UNKTAG
+printbase_: str	"*print-base*"			/デフォルトの基数は１０
+	dd	NUMBERTAG,UNKTAG,UNKTAG,UNKTAG
+printradix_: str "*print-radix*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+print_pretty_: str "*print-pretty*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+print_level_: str "*print-level*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+print_length_: str "*print-length*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+parencounter_: str "*paren-counter*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+print_paren_:	str "*print-paren*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+print_array_:	str "*print-array*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+charprint_:	str "*char-print*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+stringprint_:	str "*string-print*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+print_escape_:	str "*print-escape*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+print_case_:	str "*print-case*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+upcase_:	str ":upcase"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+downcase_:	str ":downcase"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+capitalize_:	str ":capitalize"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+
+fixnum_form_:	str "*print-fixnum-format*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+floanum_form_:	str "*print-floanum-format*"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+inputecho_: str	"*input-echo*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+load_verbose_: 	str "*load-verbose*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+load_print_: 	str "*load-print*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+screen_size_:	str	"*screen-size*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+regstart_:	str	"*reg-start-byte-position*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+regend_:	str	"*reg-end-byte-position*"
+	dd	NILTAG,UNKTAG,UNKTAG,UNKTAG
+
+element_type_: str	":element-type"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+initial_element_: str	":initial-element"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+initial_contents_: str	":initial-contents"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+displaced_to_: str	":displaced-to"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+displaced_index_offset_: str	":displaced-index-offset"
+	dd	UNKTAG,UNKTAG,UNKTAG,CONST
+
+
+read_:	str	":input"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+write_:	str	":output"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+append_:
+	str	":append"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+io_:	str	":io"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+text_:	str	":character"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+binary_:
+	str	":byte"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+
+array_: str	"array"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+struct_: str	"struct"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+fixnum_: str	"fixnum"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+floanum_: str	"floanum"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+character_: str	"character"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+string_: str	"string"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+symbol_: str	"symbol"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+subr_:	str	"subr"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+fsubr_:	str	"fsubr"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+expr_:	str	"expr"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+fexpr_:	str	"fexpr"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+macro_:	str	"macro"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+registers_:	str	"registers"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+backquote_:	str	"backquote"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+/	dd	UNKTAG,UNKTAG,l_backquote,FSUBR0
+comma_:	str	"comma"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+atmark_:	str	"atmark"
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+default_error_file_:
+	str	"logos.err"			/エラーメッセージ
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+default_manual_file_:
+	str	"logos.doc"			/マニュアル
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+default_log_file_:
+	str	"logos.log"			/ドリブル
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+default_image_file_:
+	str	"logos.img"			/メモリイメージ
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+init_file_:	str	"init.lsp"		/初期化
+	dd	UNKTAG,UNKTAG,UNKTAG,UNKTAG
+
+
+/第４章　　型指定子
+
+	str	"coerce"
+	dd	UNKTAG,UNKTAG,l_coerce,SUBR2
+
+	str	"type-of"
+	dd	UNKTAG,UNKTAG,l_type_of,SUBR1
+
+/第５章　　プログラムの構造
+
+	str	"defun"
+	dd	UNKTAG,UNKTAG,l_defun,FSUBR0
+	str	"def"
+	dd	UNKTAG,UNKTAG,l_defun,FSUBR0
+	str	"de"
+	dd	UNKTAG,UNKTAG,l_defun,FSUBR0
+	str	"df"
+	dd	UNKTAG,UNKTAG,l_df,FSUBR0
+
+	str	"defvar"
+	dd	UNKTAG,UNKTAG,l_defvar,FSUBR0
+	str	"defparameter"
+	dd	UNKTAG,UNKTAG,l_defparameter,FSUBR0
+	str	"defconstant"
+	dd	UNKTAG,UNKTAG,l_defconst,FSUBR0
+
+/第６章　　述語
+
+	str	"typep"
+	dd	UNKTAG,UNKTAG,l_typep,SUBR2
+
+null_:	str	"null"
+	dd	UNKTAG,UNKTAG,l_null,SUBR1
+	str	"symbolp"
+	dd	UNKTAG,UNKTAG,l_symbolp,SUBR1
+	str	"atom"
+	dd	UNKTAG,UNKTAG,l_atom,SUBR1
+	str	"consp"
+	dd	UNKTAG,UNKTAG,l_consp,SUBR1
+	str	"listp"
+	dd	UNKTAG,UNKTAG,l_listp,SUBR1
+	str	"nlistp"
+	dd	UNKTAG,UNKTAG,l_nlistp,SUBR1
+	str	"numberp"
+	dd	UNKTAG,UNKTAG,l_numberp,SUBR1
+	str	"integerp"
+	dd	UNKTAG,UNKTAG,l_integerp,SUBR1
+	str	"rationalp"
+	dd	UNKTAG,UNKTAG,l_rationalp,SUBR1
+	str	"floatp"
+	dd	UNKTAG,UNKTAG,l_floatp,SUBR1
+	str	"realp"
+	dd	UNKTAG,UNKTAG,l_realp,SUBR1
+	str	"complexp"
+	dd	UNKTAG,UNKTAG,l_complexp,SUBR1
+	str	"characterp"
+	dd	UNKTAG,UNKTAG,l_characterp,SUBR1
+	str	"stringp"
+	dd	UNKTAG,UNKTAG,l_stringp,SUBR1
+	str	"bit-vector-p"
+	dd	UNKTAG,UNKTAG,l_bit_vector_p,SUBR1
+	str	"vectorp"
+	dd	UNKTAG,UNKTAG,l_vectorp,SUBR1
+	str	"single-vector-p"
+	dd	UNKTAG,UNKTAG,l_single_vector_p,SUBR1
+	str	"single-string-p"
+	dd	UNKTAG,UNKTAG,l_single_string_p,SUBR1
+	str	"single-bit-vector-p"
+	dd	UNKTAG,UNKTAG,l_single_bit_vector_p,SUBR1
+	str	"arrayp"
+	dd	UNKTAG,UNKTAG,l_arrayp,SUBR1
+	str	"packagep"
+	dd	UNKTAG,UNKTAG,l_packagep,SUBR1
+	str	"arrayp"
+	dd	UNKTAG,UNKTAG,l_arrayp,SUBR1
+	str	"structp"
+	dd	UNKTAG,UNKTAG,l_structp,SUBR1
+	str	"streamp"
+	dd	UNKTAG,UNKTAG,l_streamp,SUBR1
+	str	"objectp"
+	dd	UNKTAG,UNKTAG,l_objectp,SUBR1
+	str	"functionp"
+	dd	UNKTAG,UNKTAG,l_functionp,SUBR1
+	str	"subrp"
+	dd	UNKTAG,UNKTAG,l_subrp,SUBR1
+	str	"compiled-function-p"
+	dd	UNKTAG,UNKTAG,l_compiled_function_p,SUBR1
+	str	"laterp"
+	dd	UNKTAG,UNKTAG,l_laterp,SUBR2
+
+	str	"eq"
+	dd	UNKTAG,UNKTAG,l_eq,SUBR2
+	str	"neq"
+	dd	UNKTAG,UNKTAG,l_neq,SUBR2
+	str	"eql"
+	dd	UNKTAG,UNKTAG,l_eql,SUBR2
+	str	"neql"
+	dd	UNKTAG,UNKTAG,l_neql,SUBR2
+	str	"equal"
+	dd	UNKTAG,UNKTAG,l_equal,SUBR2
+	str	"nequal"
+	dd	UNKTAG,UNKTAG,l_nequal,SUBR2
+	str	"equalp"
+	dd	UNKTAG,UNKTAG,l_equalp,SUBR2
+	str	"nequalp"
+	dd	UNKTAG,UNKTAG,l_nequalp,SUBR2
+
+	str	"not"
+	dd	UNKTAG,UNKTAG,l_null,SUBR1
+	str	"and"
+	dd	UNKTAG,UNKTAG,l_and,FSUBR0
+	str	"or"
+	dd	UNKTAG,UNKTAG,l_or,FSUBR0
+
+/第７章　　制御構造
+
+quote_:	str	"quote"				/処理そのものはcarと同じ
+	dd	UNKTAG,UNKTAG,l_car,FSUBR0
+	str	"kwote"
+	dd	UNKTAG,UNKTAG,l_kwote,SUBR1
+function_:
+	str	"function"			/現状quoteと同じ
+	dd	UNKTAG,UNKTAG,l_car,FSUBR0
+
+	str	"symbol-value"
+	dd	UNKTAG,UNKTAG,l_symbol_value,SUBR1
+	str	"symbol-function"
+	dd	UNKTAG,UNKTAG,l_symbol_function,SUBR1
+	str	"fdefinition"
+	dd	UNKTAG,UNKTAG,l_symbol_function,SUBR1
+	str	"symbol-args"
+	dd	UNKTAG,UNKTAG,l_symbol_args,SUBR1
+	str	"boundp"
+	dd	UNKTAG,UNKTAG,l_boundp,SUBR1
+	str	"fboundp"
+	dd	UNKTAG,UNKTAG,l_fboundp,SUBR1
+	str	"special-form-p"
+	dd	UNKTAG,UNKTAG,l_special_form_p,SUBR1
+
+	str	"setq"
+	dd	UNKTAG,UNKTAG,l_setq,FSUBR0
+	str	"psetq"
+	dd	UNKTAG,UNKTAG,l_psetq,FSUBR0
+	str	"set"
+	dd	UNKTAG,UNKTAG,l_set,SUBR2
+	str	"swap"
+	dd	UNKTAG,UNKTAG,l_swap,FSUBR0
+
+	str	"makunbound"
+	dd	UNKTAG,UNKTAG,l_makunbound,SUBR1
+	str	"fmakunbound"
+	dd	UNKTAG,UNKTAG,l_fmakunbound,SUBR1
+	str	"apply"
+	dd	UNKTAG,UNKTAG,l_apply,SUBRN
+	str	"funcall"
+	dd	UNKTAG,UNKTAG,l_funcall,SUBRN
+	str	"progn"
+	dd	UNKTAG,UNKTAG,l_progn,FSUBR0
+	str	"prog1"
+	dd	UNKTAG,UNKTAG,l_prog1,FSUBR0
+	str	"prog2"
+	dd	UNKTAG,UNKTAG,l_prog2,FSUBR0
+
+	str	"let"
+	dd	UNKTAG,UNKTAG,l_let,FSUBR0
+
+/	str	"let*"
+/	dd	UNKTAG,UNKTAG,,l_plet>
+
+	str	"if"
+	dd	UNKTAG,UNKTAG,l_if,FSUBR0
+	str	"when"
+	dd	UNKTAG,UNKTAG,l_when,FSUBR0
+	str	"unless"
+	dd	UNKTAG,UNKTAG,l_unless,FSUBR0
+	str	"cond"
+	dd	UNKTAG,UNKTAG,l_cond,FSUBR0
+	str	"case"
+	dd	UNKTAG,UNKTAG,l_case,FSUBR0
+
+	str	"block"
+	dd	UNKTAG,UNKTAG,l_block,FSUBR0
+	str	"return-from"
+	dd	UNKTAG,UNKTAG,l_return_from,FSUBR0
+	str	"return"
+	dd	UNKTAG,UNKTAG,l_return,FSUBR0
+	str	"loop"
+	dd	UNKTAG,UNKTAG,l_loop,FSUBR0
+
+	str	"mapcar"
+	dd	UNKTAG,UNKTAG,l_mapcar,SUBRN
+	str	"maplist"
+	dd	UNKTAG,UNKTAG,l_maplist,SUBRN
+	str	"mapc"
+	dd	UNKTAG,UNKTAG,l_mapc,SUBRN
+	str	"mapl"
+	dd	UNKTAG,UNKTAG,l_mapl,SUBRN
+	str	"mapcan"
+	dd	UNKTAG,UNKTAG,l_mapcan,SUBRN
+	str	"mapcon"
+	dd	UNKTAG,UNKTAG,l_mapcon,SUBRN
+
+	str	"tagbody"
+	dd	UNKTAG,UNKTAG,l_tagbody,FSUBR0
+	str	"prog"
+	dd	UNKTAG,UNKTAG,l_prog,FSUBR0
+	str	"go"
+	dd	UNKTAG,UNKTAG,l_go,FSUBR0
+
+	str	"catch"
+	dd	UNKTAG,UNKTAG,l_catch,FSUBR0
+	str	"unwind-protect"
+	dd	UNKTAG,UNKTAG,l_unwind_protect,FSUBR0
+	str	"throw"
+	dd	UNKTAG,UNKTAG,l_throw,FSUBR0
+
+/第８章　　マクロ
+
+	str	"defmacro"
+	dd	UNKTAG,UNKTAG,l_dm,FSUBR0
+	str	"dm"
+	dd	UNKTAG,UNKTAG,l_dm,FSUBR0
+	str	"movd"
+	dd	UNKTAG,UNKTAG,l_movd,SUBR2
+
+/第９章　　宣言
+
+	str	"declare"
+	dd	UNKTAG,UNKTAG,l_declare,FSUBR0
+	str	"the"
+	dd	UNKTAG,UNKTAG,l_the,FSUBR0
+
+/第１０章　シンボル
+
+	str	"get"
+	dd	UNKTAG,UNKTAG,l_get,SUBR3
+	str	"getprop"
+	dd	UNKTAG,UNKTAG,l_get,SUBR3
+	str	"remprop"
+	dd	UNKTAG,UNKTAG,l_remprop,SUBR2
+
+	str	"put"
+	dd	UNKTAG,UNKTAG,l_put,SUBR3
+	str	"putprop"
+	dd	UNKTAG,UNKTAG,l_put,SUBR3
+
+	str	"symbol-plist"
+	dd	UNKTAG,UNKTAG,l_symbol_plist,SUBR1
+
+	str	"set-plist"
+	dd	UNKTAG,UNKTAG,l_set_plist,SUBR2
+
+	str	"getf"
+	dd	UNKTAG,UNKTAG,l_getf,SUBR3
+/	str	"remf"
+/	dd	UNKTAG,UNKTAG,l_remf,SUBR2
+
+	str	"symbol-name"
+	dd	UNKTAG,UNKTAG,l_symbol_name,SUBR1
+	str	"make-symbol"
+	dd	UNKTAG,UNKTAG,l_make_symbol,SUBR1
+	str	"gensym"
+	dd	UNKTAG,UNKTAG,l_gensym,SUBR1
+
+	str	"pack"
+	dd	UNKTAG,UNKTAG,l_pack,SUBR1
+	str	"pack*"
+	dd	UNKTAG,UNKTAG,l_pack,SUBRN
+	str	"unpack"
+	dd	UNKTAG,UNKTAG,l_unpack,SUBR1
+
+	str	"oblist"
+	dd	UNKTAG,UNKTAG,l_oblist,SUBR0
+
+
+/第１１章　パッケージ
+
+/第１２章　数
+
+	str	"zerop"
+	dd	UNKTAG,UNKTAG,l_zerop,SUBR1
+	str	"natnump"
+	dd	UNKTAG,UNKTAG,l_natnump,SUBR1
+	str	"plusp"
+	dd	UNKTAG,UNKTAG,l_plusp,SUBR1
+	str	"minusp"
+	dd	UNKTAG,UNKTAG,l_minusp,SUBR1
+	str	"oddp"
+	dd	UNKTAG,UNKTAG,l_oddp,SUBR1
+	str	"evenp"
+	dd	UNKTAG,UNKTAG,l_evenp,SUBR1
+
+	str	"="
+	dd	UNKTAG,UNKTAG,l_meq,SUBRN
+	str	"=="
+	dd	UNKTAG,UNKTAG,l_meq,SUBRN
+	str	"f="
+	dd	UNKTAG,UNKTAG,l_feq,SUBR2
+
+	str	"!="
+	dd	UNKTAG,UNKTAG,l_mneq,SUBRN
+	str	"/="
+	dd	UNKTAG,UNKTAG,l_mneq,SUBRN
+
+	str	"<"
+	dd	UNKTAG,UNKTAG,l_less,SUBRN
+	str	"<="
+	dd	UNKTAG,UNKTAG,l_lesseq,SUBRN
+	str	"=<"
+	dd	UNKTAG,UNKTAG,l_lesseq,SUBRN
+
+	str	">"
+	dd	UNKTAG,UNKTAG,l_more,SUBRN
+	str	"=>"
+	dd	UNKTAG,UNKTAG,l_moreq,SUBRN
+	str	">="
+	dd	UNKTAG,UNKTAG,l_moreq,SUBRN
+
+	str	"lessp"
+	dd	UNKTAG,UNKTAG,l_lessp,SUBR2
+	str	"notlessp"
+	dd	UNKTAG,UNKTAG,l_notlessp,SUBR2
+	str	"greaterp"
+	dd	UNKTAG,UNKTAG,l_greaterp,SUBR2
+	str	"notgreaterp"
+	dd	UNKTAG,UNKTAG,l_notgreaterp,SUBR2
+
+	str	"less"
+	dd	UNKTAG,UNKTAG,l_less2,SUBR2
+	str	"greater"
+	dd	UNKTAG,UNKTAG,l_greater2,SUBR2
+
+	str	"min"
+	dd	UNKTAG,UNKTAG,l_min,SUBRN
+	str	"max"
+	dd	UNKTAG,UNKTAG,l_max,SUBRN
+
+	str	"gcd"
+	dd	UNKTAG,UNKTAG,l_gcd,SUBRN
+	str	"lcm"
+	dd	UNKTAG,UNKTAG,l_lcm,SUBRN
+
+	str	"plus"
+	dd	UNKTAG,UNKTAG,l_plus,SUBRN
+	str	"add"
+	dd	UNKTAG,UNKTAG,l_add,SUBR2
+	str	"f+"
+	dd	UNKTAG,UNKTAG,l_fplus,SUBR2
+
+	str	"difference"
+	dd	UNKTAG,UNKTAG,l_minus,SUBRN
+	str	"sub"
+	dd	UNKTAG,UNKTAG,l_diff,SUBR2
+	str	"f-"
+	dd	UNKTAG,UNKTAG,l_fminus,SUBR2
+
+	str	"times"
+	dd	UNKTAG,UNKTAG,l_mul,SUBRN
+	str	"mul"
+	dd	UNKTAG,UNKTAG,l_mul2,SUBR2
+	str	"f*"
+	dd	UNKTAG,UNKTAG,l_fmul,SUBR2
+
+	str	"/"
+	dd	UNKTAG,UNKTAG,l_div,SUBRN
+	str	"quotient"
+	dd	UNKTAG,UNKTAG,l_div,SUBRN
+	str	"div"
+	dd	UNKTAG,UNKTAG,l_div2,SUBR2
+	str	"f/"
+	dd	UNKTAG,UNKTAG,l_fdiv,SUBR2
+
+	str	"1+"
+	dd	UNKTAG,UNKTAG,l_inc,SUBR1
+	str	"add1"
+	dd	UNKTAG,UNKTAG,l_inc,SUBR1
+	str	"inc"
+	dd	UNKTAG,UNKTAG,l_inc,SUBR1
+	str	"1-"
+	dd	UNKTAG,UNKTAG,l_dec,SUBR1
+	str	"sub1"
+	dd	UNKTAG,UNKTAG,l_dec,SUBR1
+	str	"dec"
+	dd	UNKTAG,UNKTAG,l_dec,SUBR1
+
+	str	"incf"
+	dd	UNKTAG,UNKTAG,l_incf,FSUBR0
+	str	"incq"
+	dd	UNKTAG,UNKTAG,l_incf,FSUBR0
+	str	"decf"
+	dd	UNKTAG,UNKTAG,l_decf,FSUBR0
+	str	"decq"
+	dd	UNKTAG,UNKTAG,l_decf,FSUBR0
+
+	str	"exp"
+	dd	UNKTAG,UNKTAG,l_exp,SUBR1
+	str	"expt"
+	dd	UNKTAG,UNKTAG,l_expt,SUBR2
+	str	"log"
+	dd	UNKTAG,UNKTAG,l_log,SUBR2
+
+	str	"sqrt"
+	dd	UNKTAG,UNKTAG,l_sqrt,SUBR1
+	str	"isqrt"
+	dd	UNKTAG,UNKTAG,l_isqrt,SUBR1
+	str	"cubrt"
+	dd	UNKTAG,UNKTAG,l_cubrt,SUBR1
+	str	"icubrt"
+	dd	UNKTAG,UNKTAG,l_icubrt,SUBR1
+
+	str	"abs"
+	dd	UNKTAG,UNKTAG,l_abs,SUBR1
+	str	"signum"
+	dd	UNKTAG,UNKTAG,l_signum,SUBR1
+	str	"neg"
+	dd	UNKTAG,UNKTAG,l_neg,SUBR1
+
+	str	"sin"
+	dd	UNKTAG,UNKTAG,l_sin,SUBR1
+	str	"cos"
+	dd	UNKTAG,UNKTAG,l_cos,SUBR1
+	str	"tan"
+	dd	UNKTAG,UNKTAG,l_tan,SUBR1
+
+	str	"asin"
+	dd	UNKTAG,UNKTAG,l_asin,SUBR1
+	str	"acos"
+	dd	UNKTAG,UNKTAG,l_acos,SUBR1
+	str	"atan"
+	dd	UNKTAG,UNKTAG,l_atan,SUBR1
+
+	str	"sinh"
+	dd	UNKTAG,UNKTAG,l_sinh,SUBR1
+	str	"cosh"
+	dd	UNKTAG,UNKTAG,l_cosh,SUBR1
+	str	"tanh"
+	dd	UNKTAG,UNKTAG,l_tanh,SUBR1
+
+	str	"asinh"
+	dd	UNKTAG,UNKTAG,l_asinh,SUBR1
+	str	"acosh"
+	dd	UNKTAG,UNKTAG,l_acosh,SUBR1
+	str	"atanh"
+	dd	UNKTAG,UNKTAG,l_atanh,SUBR1
+
+	str	"radian"
+	dd	UNKTAG,UNKTAG,l_radian,SUBR1
+
+	str	"integer"
+	dd	UNKTAG,UNKTAG,l_integer,SUBR1
+	str	"float"
+	dd	UNKTAG,UNKTAG,l_float,SUBR1
+
+	str	"floor"
+	dd	UNKTAG,UNKTAG,l_floor,SUBR1
+	str	"ceiling"
+	dd	UNKTAG,UNKTAG,l_ceiling,SUBR1
+	str	"truncate"
+	dd	UNKTAG,UNKTAG,l_truncate,SUBR1
+	str	"round"
+	dd	UNKTAG,UNKTAG,l_round,SUBR1
+
+	str	"rem"
+	dd	UNKTAG,UNKTAG,l_rem,SUBR2
+/	str	"mod"
+/	dd	UNKTAG,UNKTAG,l_mod,SUBR2
+
+/	str	"complex"
+/	dd	UNKTAG,UNKTAG,l_complex,f_complex
+/	str	"realpart"
+/	dd	UNKTAG,UNKTAG,l_realpart,f_realpart
+/	str	"imagpart"
+/	dd	UNKTAG,UNKTAG,l_imagpart,f_imagpart
+
+/数値論理演算(25)
+	str	"logior"
+	dd	UNKTAG,UNKTAG,l_logior,SUBRN
+	str	"logxor"
+	dd	UNKTAG,UNKTAG,l_logxor,SUBRN
+	str	"logand"
+	dd	UNKTAG,UNKTAG,l_logand,SUBRN
+	str	"logeqv"
+	dd	UNKTAG,UNKTAG,l_logeqv,SUBRN
+
+	str	"lognand"
+	dd	UNKTAG,UNKTAG,l_lognand,SUBR2
+	str	"lognor"
+	dd	UNKTAG,UNKTAG,l_lognor,SUBR2
+	str	"logandc1"
+	dd	UNKTAG,UNKTAG,l_logandc1,SUBR2
+	str	"logandc2"
+	dd	UNKTAG,UNKTAG,l_logandc2,SUBR2
+	str	"logorc1"
+	dd	UNKTAG,UNKTAG,l_logorc1,SUBR2
+	str	"logorc2"
+	dd	UNKTAG,UNKTAG,l_logorc2,SUBR2
+	str	"lognot"
+	dd	UNKTAG,UNKTAG,l_lognot,SUBR1
+	str	"logtest"
+	dd	UNKTAG,UNKTAG,l_logtest,SUBR2
+	str	"logbitp"
+	dd	UNKTAG,UNKTAG,l_logbitp,SUBR2
+	str	"logcount"
+	dd	UNKTAG,UNKTAG,l_logcount,SUBR1
+	str	"ash"
+	dd	UNKTAG,UNKTAG,l_ash,SUBR2
+
+	str	"random"
+	dd	UNKTAG,UNKTAG,l_random,SUBR1
+
+/第１３章　文字
+
+	str	"standard-char-p"
+	dd	UNKTAG,UNKTAG,l_standard_char_p,SUBR1
+	str	"graphic-char-p"
+	dd	UNKTAG,UNKTAG,l_graphil_char_p,SUBR1
+	str	"alpha-char-p"
+	dd	UNKTAG,UNKTAG,l_alpha_char_p,SUBR1
+	str	"upper-case-p"
+	dd	UNKTAG,UNKTAG,l_upper_case_p,SUBR1
+	str	"lower-case-p"
+	dd	UNKTAG,UNKTAG,l_lower_case_p,SUBR1
+	str	"both-case-p"
+	dd	UNKTAG,UNKTAG,l_alpha_char_p,SUBR1
+	str	"digit-char-p"
+	dd	UNKTAG,UNKTAG,l_digit_char_p,SUBR2
+	str	"alphanumericp"
+	dd	UNKTAG,UNKTAG,l_alphanumericp,SUBR1
+
+	str	"kanap"
+	dd	UNKTAG,UNKTAG,l_kanap,SUBR1
+	str	"kigoup"
+	dd	UNKTAG,UNKTAG,l_kigoup,SUBR1
+
+	str	"char="
+	dd	UNKTAG,UNKTAG,l_cmeq,SUBRN
+	str	"char=="
+	dd	UNKTAG,UNKTAG,l_cmeq,SUBRN
+	str	"char!="
+	dd	UNKTAG,UNKTAG,l_cmneq,SUBRN
+	str	"char/="
+	dd	UNKTAG,UNKTAG,l_cmneq,SUBRN
+	str	"char<"
+	dd	UNKTAG,UNKTAG,l_cless,SUBRN
+	str	"char>"
+	dd	UNKTAG,UNKTAG,l_cmore,SUBRN
+	str	"char<="
+	dd	UNKTAG,UNKTAG,l_clesseq,SUBRN
+	str	"char=<"
+	dd	UNKTAG,UNKTAG,l_clesseq,SUBRN
+	str	"char>="
+	dd	UNKTAG,UNKTAG,l_cmoreq,SUBRN
+	str	"char=>"
+	dd	UNKTAG,UNKTAG,l_cmoreq,SUBRN
+
+	str	"char-equal"
+	dd	UNKTAG,UNKTAG,l_acmeq,SUBRN
+	str	"char-not-equal"
+	dd	UNKTAG,UNKTAG,l_acmneq,SUBRN
+	str	"char-lessp"
+	dd	UNKTAG,UNKTAG,l_acless,SUBRN
+	str	"char-greaterp"
+	dd	UNKTAG,UNKTAG,l_acmore,SUBRN
+	str	"char-not-greaterp"
+	dd	UNKTAG,UNKTAG,l_aclesseq,SUBRN
+	str	"char-not-lessp"
+	dd	UNKTAG,UNKTAG,l_acmoreq,SUBRN
+
+	str	"char-code"
+	dd	UNKTAG,UNKTAG,l_char_code,SUBR1
+	str	"character"
+	dd	UNKTAG,UNKTAG,l_character,SUBR1
+	str	"code-char"
+	dd	UNKTAG,UNKTAG,l_character,SUBR1
+	str	"int-char"
+	dd	UNKTAG,UNKTAG,l_character,SUBR1
+	str	"char-upcase"
+	dd	UNKTAG,UNKTAG,l_char_upcase,SUBR1
+	str	"char-downcase"
+	dd	UNKTAG,UNKTAG,l_char_downcase,SUBR1
+	str	"digit-char"
+	dd	UNKTAG,UNKTAG,l_digit_char,SUBR2
+	str	"char-int"
+	dd	UNKTAG,UNKTAG,l_char_code,SUBR1
+
+	str	"jis-alpha-p"
+	dd	UNKTAG,UNKTAG,l_jis_alpha_p,SUBR1
+	str	"jis-digit-p"
+	dd	UNKTAG,UNKTAG,l_jis_digit_p,SUBR1
+	str	"jis-hira-p"
+	dd	UNKTAG,UNKTAG,l_jis_hira_p,SUBR1
+	str	"jis-kata-p"
+	dd	UNKTAG,UNKTAG,l_jis_kata_p,SUBR1
+	str	"jis-kigou-p"
+	dd	UNKTAG,UNKTAG,l_jis_kigou_p,SUBR1
+	str	"jis-zen-p"
+	dd	UNKTAG,UNKTAG,l_jis_zen_p,SUBR1
+	str	"jis-lower-case-p"
+	dd	UNKTAG,UNKTAG,l_jis_lower_p,SUBR1
+	str	"jis-upper-case-p"
+	dd	UNKTAG,UNKTAG,l_jis_upper_p,SUBR1
+	str	"jis-space-p"
+	dd	UNKTAG,UNKTAG,l_jis_space_p,SUBR1
+
+	str	"jis-upcase"
+	dd	UNKTAG,UNKTAG,l_jis_upcase,SUBR1
+	str	"jis-downcase"
+	dd	UNKTAG,UNKTAG,l_jis_downcase,SUBR1
+	str	"jis-hira-to-kata"
+	dd	UNKTAG,UNKTAG,l_jis_hira_to_kata,SUBR1
+	str	"jis-kata-to-hira"
+	dd	UNKTAG,UNKTAG,l_jis_kata_to_hira,SUBR1
+
+	str	"han-to-zen"
+	dd	UNKTAG,UNKTAG,l_han_to_zen,SUBR1
+	str	"zen-to-han"
+	dd	UNKTAG,UNKTAG,l_zen_to_han,SUBR1
+
+	str	"character-to-string"
+	dd	UNKTAG,UNKTAG,l_character_to_string,SUBR1
+
+/第１４章 列
+
+	str	"elt"
+	dd	UNKTAG,UNKTAG,l_elt,SUBR2
+	str	"subseq"
+	dd	UNKTAG,UNKTAG,l_subseq,SUBR3
+	str	"copy-seq"
+	dd	UNKTAG,UNKTAG,l_copy_seq,SUBR1
+	str	"length"
+	dd	UNKTAG,UNKTAG,l_length,SUBR1
+	str	"reverse"
+	dd	UNKTAG,UNKTAG,l_reverse,SUBR1
+	str	"nreverse"
+	dd	UNKTAG,UNKTAG,l_nreverse,SUBR1
+	str	"make-sequence"
+	dd	UNKTAG,UNKTAG,l_make_sequence,SUBR3
+
+	str	"concatenate"
+	dd	UNKTAG,UNKTAG,l_concatenate,SUBRN
+	str	"map"
+	dd	UNKTAG,UNKTAG,l_map,SUBRN
+	str	"some"
+	dd	UNKTAG,UNKTAG,l_some,SUBRN
+	str	"every"
+	dd	UNKTAG,UNKTAG,l_every,SUBRN
+	str	"notany"
+	dd	UNKTAG,UNKTAG,l_notany,SUBRN
+	str	"notevery"
+	dd	UNKTAG,UNKTAG,l_notevery,SUBRN
+	str	"reduce"
+	dd	UNKTAG,UNKTAG,l_reduce,SUBR2
+	str	"reduce*"
+	dd	UNKTAG,UNKTAG,l_reduce_a,SUBRN
+
+	str	"fill"
+	dd	UNKTAG,UNKTAG,l_fill,SUBR4
+	str	"remove"
+	dd	UNKTAG,UNKTAG,l_remove,SUBR2
+	str	"remove-if"
+	dd	UNKTAG,UNKTAG,l_remove_if,SUBR2
+	str	"remove-if-not"
+	dd	UNKTAG,UNKTAG,l_remove_if_not,SUBR2
+	str	"delete"
+	dd	UNKTAG,UNKTAG,l_remove,SUBR2
+	str	"delete-if"
+	dd	UNKTAG,UNKTAG,l_remove_if,SUBR2
+	str	"delete-if-not"
+	dd	UNKTAG,UNKTAG,l_remove_if_not,SUBR2
+
+	str	"remove-duplicates"
+	dd	UNKTAG,UNKTAG,l_remove_duplicates,SUBR1
+	str	"delete-duplicates"
+	dd	UNKTAG,UNKTAG,l_remove_duplicates,SUBR1
+
+	str	"substitute"
+	dd	UNKTAG,UNKTAG,l_substitute,SUBR3
+	str	"substitute-if"
+	dd	UNKTAG,UNKTAG,l_substitute_if,SUBR3
+	str	"substitute-if-not"
+	dd	UNKTAG,UNKTAG,l_substitute_if_not,SUBR3
+	str	"nsubstitute"
+	dd	UNKTAG,UNKTAG,l_substitute,SUBR3
+	str	"nsubstitute-if"
+	dd	UNKTAG,UNKTAG,l_substitute_if,SUBR3
+	str	"nsubstitute-if-not"
+	dd	UNKTAG,UNKTAG,l_substitute_if_not,SUBR3
+
+	str	"find"
+	dd	UNKTAG,UNKTAG,l_find,SUBR2
+	str	"find-if"
+	dd	UNKTAG,UNKTAG,l_find_if,SUBR2
+	str	"find-if-not"
+	dd	UNKTAG,UNKTAG,l_find_if_not,SUBR2
+	str	"position"
+	dd	UNKTAG,UNKTAG,l_position,SUBR2
+	str	"position-if"
+	dd	UNKTAG,UNKTAG,l_position_if,SUBR2
+	str	"position-if-not"
+	dd	UNKTAG,UNKTAG,l_position_if_not,SUBR2
+	str	"count"
+	dd	UNKTAG,UNKTAG,l_count,SUBR2
+	str	"count-if"
+	dd	UNKTAG,UNKTAG,l_count_if,SUBR2
+	str	"count-if-not"
+	dd	UNKTAG,UNKTAG,l_count_if_not,SUBR2
+
+	str	"sort"
+	dd	UNKTAG,UNKTAG,l_sort,SUBR2
+
+
+/第１５章　リスト
+
+	str	"car"
+	dd	UNKTAG,UNKTAG,l_car,SUBR1
+	str	"first"
+	dd	UNKTAG,UNKTAG,l_car,SUBR1
+	str	"cdr"
+	dd	UNKTAG,UNKTAG,l_cdr,SUBR1
+	str	"rest"
+	dd	UNKTAG,UNKTAG,l_cdr,SUBR1
+	str	"caar"
+	dd	UNKTAG,UNKTAG,l_caar,SUBR1
+	str	"cadr"
+	dd	UNKTAG,UNKTAG,l_cadr,SUBR1
+	str	"second"
+	dd	UNKTAG,UNKTAG,l_cadr,SUBR1
+	str	"cdar"
+	dd	UNKTAG,UNKTAG,l_cdar,SUBR1
+	str	"cddr"
+	dd	UNKTAG,UNKTAG,l_cddr,SUBR1
+
+	str	"caaar"
+	dd	UNKTAG,UNKTAG,l_caaar,SUBR1
+	str	"caadr"
+	dd	UNKTAG,UNKTAG,l_caadr,SUBR1
+	str	"cadar"
+	dd	UNKTAG,UNKTAG,l_cadar,SUBR1
+	str	"caddr"
+	dd	UNKTAG,UNKTAG,l_caddr,SUBR1
+	str	"third"
+	dd	UNKTAG,UNKTAG,l_caddr,SUBR1
+	str	"cdaar"
+	dd	UNKTAG,UNKTAG,l_cdaar,SUBR1
+	str	"cdadr"
+	dd	UNKTAG,UNKTAG,l_cdadr,SUBR1
+	str	"cddar"
+	dd	UNKTAG,UNKTAG,l_cddar,SUBR1
+	str	"cdddr"
+	dd	UNKTAG,UNKTAG,l_cdddr,SUBR1
+
+	str	"caaaar"
+	dd	UNKTAG,UNKTAG,l_caaaar,SUBR1
+	str	"caaadr"
+	dd	UNKTAG,UNKTAG,l_caaadr,SUBR1
+	str	"caadar"
+	dd	UNKTAG,UNKTAG,l_caadar,SUBR1
+	str	"caaddr"
+	dd	UNKTAG,UNKTAG,l_caaddr,SUBR1
+	str	"cadaar"
+	dd	UNKTAG,UNKTAG,l_cadaar,SUBR1
+	str	"cadadr"
+	dd	UNKTAG,UNKTAG,l_cadadr,SUBR1
+	str	"caddar"
+	dd	UNKTAG,UNKTAG,l_caddar,SUBR1
+	str	"cadddr"
+	dd	UNKTAG,UNKTAG,l_cadddr,SUBR1
+	str	"fourth"
+	dd	UNKTAG,UNKTAG,l_cadddr,SUBR1
+
+	str	"cdaaar"
+	dd	UNKTAG,UNKTAG,l_cdaaar,SUBR1
+	str	"cdaadr"
+	dd	UNKTAG,UNKTAG,l_cdaadr,SUBR1
+	str	"cdadar"
+	dd	UNKTAG,UNKTAG,l_cdadar,SUBR1
+	str	"cdaddr"
+	dd	UNKTAG,UNKTAG,l_cdaddr,SUBR1
+	str	"cddaar"
+	dd	UNKTAG,UNKTAG,l_cddaar,SUBR1
+	str	"cddadr"
+	dd	UNKTAG,UNKTAG,l_cddadr,SUBR1
+	str	"cdddar"
+	dd	UNKTAG,UNKTAG,l_cdddar,SUBR1
+	str	"cddddr"
+	dd	UNKTAG,UNKTAG,l_cddddr,SUBR1
+
+	str	"fifth"
+	dd	UNKTAG,UNKTAG,l_fifth,SUBR1
+	str	"sixth"
+	dd	UNKTAG,UNKTAG,l_sixth,SUBR1
+	str	"seventh"
+	dd	UNKTAG,UNKTAG,l_seventh,SUBR1
+	str	"eighth"
+	dd	UNKTAG,UNKTAG,l_eighth,SUBR1
+	str	"nineth"
+	dd	UNKTAG,UNKTAG,l_nineth,SUBR1
+	str	"tenth"
+	dd	UNKTAG,UNKTAG,l_tenth,SUBR1
+
+	str	"nth"
+	dd	UNKTAG,UNKTAG,l_nth,SUBR2
+	str	"nthcdr"
+	dd	UNKTAG,UNKTAG,l_nthcdr,SUBR2
+
+	str	"last"
+	dd	UNKTAG,UNKTAG,l_last,SUBR1
+	str	"lastelem"
+	dd	UNKTAG,UNKTAG,l_lastelem,SUBR1
+
+	str	"endp"
+	dd	UNKTAG,UNKTAG,l_endp,SUBR1
+
+cons_:	str	"cons"
+	dd	UNKTAG,UNKTAG,l_cons,SUBR2
+list_:	str	"list"
+	dd	UNKTAG,UNKTAG,l_list,SUBRN
+	str	"list*"
+	dd	UNKTAG,UNKTAG,l_lista,SUBRN
+
+	str	"make-list"
+	dd	UNKTAG,UNKTAG,l_make_list,SUBR2
+
+	str	"append"
+	dd	UNKTAG,UNKTAG,l_append,SUBRN
+	str	"append2"
+	dd	UNKTAG,UNKTAG,l_append2,SUBR2
+	str	"revappend"
+	dd	UNKTAG,UNKTAG,l_revappend,SUBRN
+
+	str	"nconc"
+	dd	UNKTAG,UNKTAG,l_nconc,SUBRN
+	str	"nconc2"
+	dd	UNKTAG,UNKTAG,l_nconc2,SUBR2
+
+	str	"nreconc"
+	dd	UNKTAG,UNKTAG,l_nreconc,SUBRN
+
+	str	"butlast"
+	dd	UNKTAG,UNKTAG,l_butlast,SUBR2
+	str	"nbutlast"
+	dd	UNKTAG,UNKTAG,l_nbutlast,SUBR2
+	str	"ldiff"
+	dd	UNKTAG,UNKTAG,l_ldiff,SUBR2
+
+	str	"rplaca"
+	dd	UNKTAG,UNKTAG,l_rplaca,SUBR2
+	str	"rplacd"
+	dd	UNKTAG,UNKTAG,l_rplacd,SUBR2
+
+	str	"subst"
+	dd	UNKTAG,UNKTAG,l_subst,SUBR3
+	str	"subst-if"
+	dd	UNKTAG,UNKTAG,l_subst_if,SUBR3
+	str	"subst-if-not"
+	dd	UNKTAG,UNKTAG,l_subst_if_not,SUBR3
+
+	str	"sublis"
+	dd	UNKTAG,UNKTAG,l_sublis,SUBR3
+
+	str	"member"
+	dd	UNKTAG,UNKTAG,l_member,SUBR2
+	str	"member-if"
+	dd	UNKTAG,UNKTAG,l_member_if,SUBR2
+	str	"member-if-not"
+	dd	UNKTAG,UNKTAG,l_member_if_not,SUBR2
+	str	"memq"
+	dd	UNKTAG,UNKTAG,l_memq,SUBR2
+
+	str	"tailp"
+	dd	UNKTAG,UNKTAG,l_tailp,SUBR2
+	str	"adjoin"
+	dd	UNKTAG,UNKTAG,l_adjoin,SUBR2
+
+	str	"union"
+	dd	UNKTAG,UNKTAG,l_union,SUBR2
+	str	"intersection"
+	dd	UNKTAG,UNKTAG,l_intersection,SUBR2
+	str	"set-difference"
+	dd	UNKTAG,UNKTAG,l_set_difference,SUBR2
+	str	"set-exclusive-or"
+	dd	UNKTAG,UNKTAG,l_set_exclusive_or,SUBR2
+	str	"subsetp"
+	dd	UNKTAG,UNKTAG,l_subsetp,SUBR2
+
+	str	"acons"
+	dd	UNKTAG,UNKTAG,l_acons,SUBR3
+	str	"pairlis"
+	dd	UNKTAG,UNKTAG,l_pairlis,SUBR3
+
+	str	"assoc"
+	dd	UNKTAG,UNKTAG,l_assoc,SUBR2
+	str	"assoc-if"
+	dd	UNKTAG,UNKTAG,l_assoc_if,SUBR2
+	str	"assoc-if-not"
+	dd	UNKTAG,UNKTAG,l_assoc_if_not,SUBR2
+
+	str	"rassoc"
+	dd	UNKTAG,UNKTAG,l_rassoc,SUBR2
+	str	"rassoc-if"
+	dd	UNKTAG,UNKTAG,l_rassoc_if,SUBR2
+	str	"rassoc-if-not"
+	dd	UNKTAG,UNKTAG,l_rassoc_if_not,SUBR2
+
+/第１６章　ハッシュ表
+
+/第１７章　配列
+
+/	str	"make-array"
+/	dd	UNKTAG,UNKTAG,l_make_array,SUBRN
+	str	"vector"
+	dd	UNKTAG,UNKTAG,l_vector,SUBRN
+	str	"list-to-vector"
+	dd	UNKTAG,UNKTAG,l_vector,SUBR1	/引数ひとつ
+	str	"vector-to-list"
+	dd	UNKTAG,UNKTAG,l_vector_to_list,SUBR1
+	str	"string-to-vector"
+	dd	UNKTAG,UNKTAG,l_string_to_vector,SUBR1
+	str	"vector-to-string"
+	dd	UNKTAG,UNKTAG,l_vector_to_string,SUBR1
+
+	str	"aref"
+	dd	UNKTAG,UNKTAG,l_svref,SUBR2	/should be SUBRN
+	str	"svref"
+	dd	UNKTAG,UNKTAG,l_svref,SUBR2
+	str	"set-vector"
+	dd	UNKTAG,UNKTAG,l_set_vector,SUBR3
+
+	str	"array-element-type"
+	dd	UNKTAG,UNKTAG,l_array_element_type,SUBR1
+	str	"array-rank"
+	dd	UNKTAG,UNKTAG,l_array_rank,SUBR1
+	str	"array-dimension"
+	dd	UNKTAG,UNKTAG,l_array_dimension,SUBR1
+
+	str	"vector-equal"
+	dd	UNKTAG,UNKTAG,l_vector_equal,SUBR2
+
+/第１８章　文字列
+
+	str	"char"
+	dd	UNKTAG,UNKTAG,l_char,SUBR2
+	str	"string-length"
+	dd	UNKTAG,UNKTAG,l_string_length,SUBR1
+	str	"string-byte-length"
+	dd	UNKTAG,UNKTAG,l_string_byte_length,SUBR1
+	str	"string-character-position-to-byte-position"
+	dd	UNKTAG,UNKTAG,l_string_position_to_byte_position,SUBR2
+	str	"string-byte-position-to-character-position"
+	dd	UNKTAG,UNKTAG,l_string_byte_position_to_position,SUBR2
+
+	str	"string="
+	dd	UNKTAG,UNKTAG,l_string_equala,SUBR2
+	str	"string=="
+	dd	UNKTAG,UNKTAG,l_string_equala,SUBR2
+	str	"string<"
+	dd	UNKTAG,UNKTAG,l_string_lesspa,SUBR2
+	str	"string>"
+	dd	UNKTAG,UNKTAG,l_string_gtpa,SUBR2
+	str	"string<="
+	dd	UNKTAG,UNKTAG,l_string_ngtpa,SUBR2
+	str	"string=<"
+	dd	UNKTAG,UNKTAG,l_string_ngtpa,SUBR2
+	str	"string>="
+	dd	UNKTAG,UNKTAG,l_string_nlesspa,SUBR2
+	str	"string=>"
+	dd	UNKTAG,UNKTAG,l_string_nlesspa,SUBR2
+	str	"string/="
+	dd	UNKTAG,UNKTAG,l_string_nequala,SUBR2
+	str	"string!="
+	dd	UNKTAG,UNKTAG,l_string_nequala,SUBR2
+
+	str	"string-equal"
+	dd	UNKTAG,UNKTAG,l_string_equalb,SUBR2
+	str	"string-lessp"
+	dd	UNKTAG,UNKTAG,l_string_lesspb,SUBR2
+	str	"string-greaterp"
+	dd	UNKTAG,UNKTAG,l_string_gtpb,SUBR2
+	str	"string-not-greaterp"
+	dd	UNKTAG,UNKTAG,l_string_ngtpb,SUBR2
+	str	"string-not-lessp"
+	dd	UNKTAG,UNKTAG,l_string_nlesspb,SUBR2
+	str	"string-not-equal"
+	dd	UNKTAG,UNKTAG,l_string_nequalb,SUBR2
+
+	str	"string-search"
+	dd	UNKTAG,UNKTAG,l_string_search,SUBR2
+
+	str	"string-to-list"
+	dd	UNKTAG,UNKTAG,l_string_to_list,SUBR1
+	str	"list-to-string"
+	dd	UNKTAG,UNKTAG,l_list_to_string,SUBR1
+
+	str	"make-string"
+	dd	UNKTAG,UNKTAG,l_make_string,SUBR2
+
+	str	"copy-string"
+	dd	UNKTAG,UNKTAG,l_copy_string,SUBR1
+	str	"substring"
+	dd	UNKTAG,UNKTAG,l_substring,SUBR3
+	str	"strcat"
+	dd	UNKTAG,UNKTAG,l_strcat,SUBRN
+
+	str	"string-trim"
+	dd	UNKTAG,UNKTAG,l_string_trim,SUBR2
+	str	"string-left-trim"
+	dd	UNKTAG,UNKTAG,l_string_left_trim,SUBR2
+	str	"string-right-trim"
+	dd	UNKTAG,UNKTAG,l_string_right_trim,SUBR2
+
+	str	"string-upcase"
+	dd	UNKTAG,UNKTAG,l_string_upcase,SUBR3
+	str	"string-downcase"
+	dd	UNKTAG,UNKTAG,l_string_downcase,SUBR3
+	str	"string-capitalize"
+	dd	UNKTAG,UNKTAG,l_string_capitalize,SUBR3
+	str	"nstring-upcase"
+	dd	UNKTAG,UNKTAG,l_nstring_upcase,SUBR3
+	str	"nstring-downcase"
+	dd	UNKTAG,UNKTAG,l_nstring_downcase,SUBR3
+	str	"nstring-capitalize"
+	dd	UNKTAG,UNKTAG,l_nstring_capitalize,SUBR3
+
+	str	"string-jis-upcase"
+	dd	UNKTAG,UNKTAG,l_string_jis_upcase,SUBR3
+	str	"string-jis-downcase"
+	dd	UNKTAG,UNKTAG,l_string_jis_downcase,SUBR3
+	str	"nstring-jis-upcase"
+	dd	UNKTAG,UNKTAG,l_nstring_jis_upcase,SUBR3
+	str	"nstring-jis-downcase"
+	dd	UNKTAG,UNKTAG,l_nstring_jis_downcase,SUBR3
+
+	str	"string-jis-hira-to-kata"
+	dd	UNKTAG,UNKTAG,l_string_jis_hira_to_kata,SUBR1
+	str	"string-jis-kata-to-hira"
+	dd	UNKTAG,UNKTAG,l_string_jis_kata_to_hira,SUBR1
+	str	"nstring-jis-hira-to-kata"
+	dd	UNKTAG,UNKTAG,l_nstring_jis_hira_to_kata,SUBR1
+	str	"nstring-jis-kata-to-hira"
+	dd	UNKTAG,UNKTAG,l_nstring_jis_kata_to_hira,SUBR1
+
+/正規表現関数
+	str	"re-set-syntax"
+	dd	UNKTAG,UNKTAG,l_re_set_syntax,SUBR1
+	str	"string-match"
+	dd	UNKTAG,UNKTAG,l_match_string,SUBR3
+	str	"match-string"
+	dd	UNKTAG,UNKTAG,l_match_string,SUBR3
+
+/第１９章　構造体
+
+	str	"defstruct"
+	dd	UNKTAG,UNKTAG,l_defstruct,FSUBR0
+
+	str	"stref"
+	dd	UNKTAG,UNKTAG,l_stref,SUBR2
+	str	"set-struct"
+	dd	UNKTAG,UNKTAG,l_set_struct,SUBR3
+
+	str	"make-struct"
+	dd	UNKTAG,UNKTAG,l_make_struct,SUBRN
+	str	"copy-struct"
+	dd	UNKTAG,UNKTAG,l_copy_struct,SUBR1
+
+	str	"struct-to-vector"
+	dd	UNKTAG,UNKTAG,l_struct_to_vector,SUBR1
+	str	"struct-to-list"
+	dd	UNKTAG,UNKTAG,l_struct_to_list,SUBR1
+
+	str	"struct-equal"
+	dd	UNKTAG,UNKTAG,l_struct_equal,SUBR2
+
+/第２０章　エバリュエーター
+
+	str	"eval"
+	dd	UNKTAG,UNKTAG,l_eval,SUBR1
+	str	"constantp"
+	dd	UNKTAG,UNKTAG,l_constantp,SUBR1
+
+/第２２章  入出力
+
+	str	"read"
+	dd	UNKTAG,UNKTAG,l_read,SUBR1
+	str	"read-line"
+	dd	UNKTAG,UNKTAG,l_read_line,SUBR1
+	str	"read-char"
+	dd	UNKTAG,UNKTAG,l_read_char,SUBR1
+	str	"unread-char"
+	dd	UNKTAG,UNKTAG,l_unread_char,SUBR2
+	str	"peek-char"
+	dd	UNKTAG,UNKTAG,l_peek_char,SUBR1
+	str	"clear-input"
+	dd	UNKTAG,UNKTAG,l_clear_input,SUBR0
+
+	str	"read-from-string"
+	dd	UNKTAG,UNKTAG,l_read_from_string,SUBR1
+	str	"read-byte"
+	dd	UNKTAG,UNKTAG,l_read_byte,SUBR1
+
+	str	"print"
+	dd	UNKTAG,UNKTAG,l_print,SUBR2
+	str	"prin1"
+	dd	UNKTAG,UNKTAG,l_prin1,SUBR2
+	str	"princ"
+	dd	UNKTAG,UNKTAG,l_princ,SUBR2
+
+	str	"write"
+	dd	UNKTAG,UNKTAG,l_princ,SUBR2
+	str	"write-char"
+	dd	UNKTAG,UNKTAG,l_write_char,SUBR2
+
+	str	"write-string"
+	dd	UNKTAG,UNKTAG,l_write_string,SUBR2
+	str	"write-line"
+	dd	UNKTAG,UNKTAG,l_write_line,SUBR2
+
+	str	"terpri"
+	dd	UNKTAG,UNKTAG,l_terpri,SUBR1
+	str	"terpris"
+	dd	UNKTAG,UNKTAG,l_terpris,SUBR2
+	str	"space"
+	dd	UNKTAG,UNKTAG,l_space,SUBR1
+	str	"spaces"
+	dd	UNKTAG,UNKTAG,l_spaces,SUBR2
+	str	"tab"
+	dd	UNKTAG,UNKTAG,l_tab,SUBR1
+	str	"tabs"
+	dd	UNKTAG,UNKTAG,l_tabs,SUBR2
+
+	str	"write-byte"
+	dd	UNKTAG,UNKTAG,l_write_byte,SUBR2
+
+
+/第２３章　ファイルシステムインターフェース
+
+	str	"open"
+	dd	UNKTAG,UNKTAG,l_open,SUBRN
+	str	"close"
+	dd	UNKTAG,UNKTAG,l_close,SUBR1
+	str	"load"
+	dd	UNKTAG,UNKTAG,l_load,SUBR1
+
+	str	"change-dir"
+	dd	UNKTAG,UNKTAG,l_change_dir,SUBR1
+	str	"make-dir"
+	dd	UNKTAG,UNKTAG,l_make_dir,SUBR1
+	str	"remove-dir"
+	dd	UNKTAG,UNKTAG,l_remove_dir,SUBR1
+
+/	str	"rename-file"
+/	dd	UNKTAG,UNKTAG,l_rename_file,SUBR2
+	str	"delete-file"
+	dd	UNKTAG,UNKTAG,l_delete_file,SUBR1
+	str	"probe-file"
+	dd	UNKTAG,UNKTAG,l_probe_file,SUBR1
+	str	"file-length"
+	dd	UNKTAG,UNKTAG,l_file_length,SUBR1
+
+	str	"seek"
+	dd	UNKTAG,UNKTAG,l_seek,SUBR2
+	str	"tell"
+	dd	UNKTAG,UNKTAG,l_tell,SUBR1
+
+	str	"save"
+	dd	UNKTAG,UNKTAG,l_save,SUBR1
+
+/第２４章　エラー
+
+	str	"error"
+	dd	UNKTAG,UNKTAG,l_error,SUBR1
+	str	"warn"
+	dd	UNKTAG,UNKTAG,l_warn,SUBR1
+
+
+/第２５章　さまざまな機能
+
+	str	"trace"
+	dd	UNKTAG,UNKTAG,l_trace,FSUBR0
+	str	"untrace"
+	dd	UNKTAG,UNKTAG,l_untrace,FSUBR0
+
+	str	"time"
+	dd	UNKTAG,UNKTAG,l_time,SUBR1
+	str	"bench-mark-test"
+	dd	UNKTAG,UNKTAG,l_bench_mark_test,SUBR2
+
+	str	"describe"
+	dd	UNKTAG,UNKTAG,l_describe,SUBR2
+
+	str	"room"
+	dd	UNKTAG,UNKTAG,l_room,SUBR1
+	str	"codearea"
+	dd	UNKTAG,UNKTAG,l_codearea,SUBR0
+	str	"consarea"
+	dd	UNKTAG,UNKTAG,l_consarea,SUBR0
+	str	"arrayarea"
+	dd	UNKTAG,UNKTAG,l_arrayarea,SUBR0
+	str	"structarea"
+	dd	UNKTAG,UNKTAG,l_structarea,SUBR0
+	str	"symbolarea"
+	dd	UNKTAG,UNKTAG,l_symbolarea,SUBR0
+	str	"stringarea"
+	dd	UNKTAG,UNKTAG,l_stringarea,SUBR0
+	str	"floanumarea"
+	dd	UNKTAG,UNKTAG,l_floanumarea,SUBR0
+
+	str	"dribble"
+	dd	UNKTAG,UNKTAG,l_dribble,SUBR1
+
+	str	"get-decoded-time"
+	dd	UNKTAG,UNKTAG,l_get_decoded_time,SUBR0
+	str	"sleep"
+	dd	UNKTAG,UNKTAG,l_sleep,SUBR1
+
+	str	"identity"
+	dd	UNKTAG,UNKTAG,l_identity,SUBR1
+
+	str	"system"
+	dd	UNKTAG,UNKTAG,l_system,SUBR1
+	str	"getenv"
+	dd	UNKTAG,UNKTAG,l_getenv,SUBR1
+
+	str	"peek"
+	dd	UNKTAG,UNKTAG,l_peek,SUBR1
+	str	"dpeek"
+	dd	UNKTAG,UNKTAG,l_dpeek,SUBR1
+	str	"peek*"
+	dd	UNKTAG,UNKTAG,l_peeka,SUBR2
+
+	str	"poke"
+	dd	UNKTAG,UNKTAG,l_poke,SUBR2
+	str	"dpoke"
+	dd	UNKTAG,UNKTAG,l_dpoke,SUBR2
+	str	"poke*"
+	dd	UNKTAG,UNKTAG,l_pokea,SUBR3
+
+	str	"poke-code"
+	dd	UNKTAG,UNKTAG,l_poke_code,SUBR1
+
+	str	"address-of"
+	dd	UNKTAG,UNKTAG,l_address_of,SUBR1
+	str	"cell"
+	dd	UNKTAG,UNKTAG,l_cell,SUBR1
+	str	"stack"
+	dd	UNKTAG,UNKTAG,l_stack,SUBR1
+
+	str	"inp"
+	dd	UNKTAG,UNKTAG,l_inp,SUBR1
+	str	"outp"
+	dd	UNKTAG,UNKTAG,l_outp,SUBR2
+
+	str	"getch"
+	dd	UNKTAG,UNKTAG,l_getch,SUBR0
+	str	"kbhit"
+	dd	UNKTAG,UNKTAG,l_kbhit,SUBR0
+	str	"redo"
+	dd	UNKTAG,UNKTAG,l_redo,SUBR1
+
+	str	"pcatp"
+	dd	UNKTAG,UNKTAG,l_pcatp,SUBR0
+	str	"pc9801p"
+	dd	UNKTAG,UNKTAG,l_pc9801p,SUBR0
+	str	"fpup"
+	dd	UNKTAG,UNKTAG,l_fpup,SUBR0
+	str	"memory"
+	dd	UNKTAG,UNKTAG,l_memory,SUBR0
+	str	"lisp-implementation-version"
+	dd	UNKTAG,UNKTAG,l_lisp_implementation_verson,SUBR0
+	str	"dosver"
+	dd	UNKTAG,UNKTAG,l_dosver,SUBR0
+	str	"go32ver"
+	dd	UNKTAG,UNKTAG,l_go32ver,SUBR0
+	str	"go32ver2"
+	dd	UNKTAG,UNKTAG,l_go32ver2,SUBR0
+
+	str	"top-level"
+	dd	UNKTAG,UNKTAG,l_top_level,SUBR0
+
+	str	"exit"
+	dd	UNKTAG,UNKTAG,l_exit,SUBR1
+	str	"quit"
+	dd	UNKTAG,UNKTAG,l_exit,SUBR1
+	str	"bye"
+	dd	UNKTAG,UNKTAG,l_exit,SUBR1
+	str	"si:logout"
+	dd	UNKTAG,UNKTAG,l_exit,SUBR1
+
+	str	"gc"
+	dd	UNKTAG,UNKTAG,l_gbc,SUBR0
+	str	"gbc"
+	dd	UNKTAG,UNKTAG,l_gbc,SUBR0
+	str	"reclaim"
+	dd	UNKTAG,UNKTAG,l_gbc,SUBR0
+
+	str	"expand"
+	dd	UNKTAG,UNKTAG,l_expand,SUBR2
+
+/テキスト関連関数
+/	str	"vga-mode"
+/	dd	UNKTAG,UNKTAG,l_vga_mode,SUBR1
+/	str	"locate"
+/	dd	UNKTAG,UNKTAG,l_locate,SUBR2
+/	str	"scroll"
+/	dd	UNKTAG,UNKTAG,l_scroll,SUBRN
+/	str	"watch"
+/	dd	UNKTAG,UNKTAG,l_watch,SUBR4
+
+/グラフィック関連関数
+	str	"screen"
+	dd	UNKTAG,UNKTAG,l_screen,SUBR3
+	str	"gclr"
+	dd	UNKTAG,UNKTAG,l_gclr,SUBR1
+	str	"line"
+	dd	UNKTAG,UNKTAG,l_line,SUBRN
+	str	"plot"
+	dd	UNKTAG,UNKTAG,l_plot,SUBR3
+	str	"circle"
+	dd	UNKTAG,UNKTAG,l_circle,SUBR4
+	str	"poly"
+	dd	UNKTAG,UNKTAG,l_poly,SUBRN
+
+	str	"pixel"
+	dd	UNKTAG,UNKTAG,l_pixel,SUBR2
+
+/そのほか
+/	str	"require"
+/	dd	UNKTAG,UNKTAG,l_require,SUBR1
+/	str	"ccall"
+/	dd	UNKTAG,UNKTAG,l_ccall,SUBR1
+/	str	"exec"
+/	dd	UNKTAG,UNKTAG,l_exec,SUBR1
+/	str	"int86"
+/	dd	UNKTAG,UNKTAG,l_int86,SUBR2
+/	str	"cpu"
+/	dd	UNKTAG,UNKTAG,l_cpu,SUBR0
+
+	dd	0,0				/データ終了の印
+
+@dataend:					/プログラムはここまで
+
